@@ -5,7 +5,7 @@ from pathlib import Path
 
 class EconomyDynamics(Scene):
     """
-    Animate a single macroeconomic trajectory.
+    Animate a single macroeconomic trajectory with connected line paths.
     Expects a JSON file `outputs/figures/demo_history.json` produced by
     the demo script.
     """
@@ -43,19 +43,20 @@ class EconomyDynamics(Scene):
 
         labels = axes.get_axis_labels(x_label="t", y_label="value")
 
-        pi_dots = VGroup(*[
-            Dot(axes.c2p(t, v), radius=0.03, color=RED)
-            for t, v in zip(steps, pi_n)
-        ])
-        u_dots = VGroup(*[
-            Dot(axes.c2p(t, v), radius=0.03, color=BLUE)
-            for t, v in zip(steps, u_n)
-        ])
-        g_dots = VGroup(*[
-            Dot(axes.c2p(t, v), radius=0.03, color=GREEN)
-            for t, v in zip(steps, g_n)
-        ])
+        # --- Build connected line paths (VMobject) for each series ---
+        def build_path(data, color):
+            """Create a VMobject path through all points."""
+            path = VMobject(stroke_color=color, stroke_width=2)
+            # Convert first point to Manim coordinates
+            points = [axes.c2p(t, v) for t, v in zip(steps, data)]
+            path.set_points_as_corners(points)
+            return path
 
+        pi_path = build_path(pi_n, RED)
+        u_path  = build_path(u_n,  BLUE)
+        g_path  = build_path(g_n,  GREEN)
+
+        # --- Legend ---
         legend = VGroup(
             Dot(color=RED).scale(0.6),
             Text("π", font_size=20).next_to(Dot(color=RED), RIGHT),
@@ -65,12 +66,13 @@ class EconomyDynamics(Scene):
             Text("g", font_size=20).next_to(Dot(color=GREEN).shift(DOWN*0.8), RIGHT),
         ).to_corner(UR)
 
+        # --- Animate ---
         self.play(Create(axes), Write(labels))
         self.play(FadeIn(legend))
 
-        # Animate trajectories by revealing progressively
-        self.play(Create(pi_dots), run_time=4, rate_func=linear)
-        self.play(Create(u_dots),  run_time=4, rate_func=linear)
-        self.play(Create(g_dots),  run_time=4, rate_func=linear)
+        # Draw each trajectory progressively
+        self.play(Create(pi_path), run_time=4, rate_func=linear)
+        self.play(Create(u_path),  run_time=4, rate_func=linear)
+        self.play(Create(g_path),  run_time=4, rate_func=linear)
 
         self.wait(2)
