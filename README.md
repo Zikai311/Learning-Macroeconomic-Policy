@@ -12,6 +12,7 @@ Every few months, real-world policymakers face tough questions:
 
 - Should the central bank **raise interest rates** to fight inflation, even if it might cause unemployment?
 - Should the government **spend more** to boost growth, even if it means borrowing more?
+- Should the government **raise taxes** to pay down debt, even if it might slow the economy?
 
 Today, many countries follow simple **rules of thumb**. For example, the famous *Taylor Rule* says: "if inflation is 1% above target, raise interest rates by 1.5%." It's a good starting point, but it's rigid.
 
@@ -81,7 +82,7 @@ This is a 6-panel chart. Each panel tracks one economic variable across 200 quar
 
 #### 5. Debt/GDP d (%)
 - **What it means:** How much the government owes, expressed as a percentage of the economy's total yearly output. d = 60% means the government debt equals 60% of one year's GDP.
-- **What to look for:** Debt goes up when the government spends more than it collects in taxes (a **budget deficit**). In our simplified model, taxes are held constant, so debt wiggles as spending changes.
+- **What to look for:** Debt goes up when the government spends more than it collects in taxes (a **budget deficit**). Now that the tax rate is adjustable, you can see both spending *and* tax policy affecting the debt trajectory. Raise taxes or cut spending → debt falls. Cut taxes or spend more → debt rises.
 
 #### 6. Expected Inflation Eπ (%)
 - **What it means:** What households and businesses *think* inflation will be next year. This matters because expectations become self-fulfilling: if workers expect 5% inflation, they demand 5% wage raises, and firms raise prices by 5%.
@@ -93,8 +94,13 @@ This chart shows the **policy actions** taken each quarter:
 
 - **Δr (monetary)** — How much the central bank changed the interest rate this quarter. Positive = raised rates (tightening). Negative = cut rates (stimulating).
 - **ΔG (fiscal)** — How much the government changed its spending this quarter. Positive = spent more. Negative = austerity.
+- **Δτ (tax)** — How much the government changed the tax rate this quarter. Positive = raised taxes (reduces deficit). Negative = tax cuts (stimulating).
 
 These actions are calculated by a simple **Taylor-like rule** in the demo script. It's not the AI yet — it's a hand-written formula. The AI will replace this later.
+
+#### Economic Health Over Time (bottom panel)
+- **What it means:** The **reward** score each quarter. Think of it as a "report card" for the economy. It penalizes deviations of inflation and unemployment from their targets, rewards growth above potential, and lightly penalizes high debt. **Zero = perfectly on target.** Positive = doing better than target. Negative = missing targets.
+- **What to look for:** A healthy economy hovers near zero. During a crisis, the reward drops sharply into negative territory. Notice how the supply shock scenario drives the reward much lower than baseline — that's stagflation at work.
 
 ### `trajectory(Demand_Shock).png`
 
@@ -117,7 +123,7 @@ This is the same economy, but between quarters 50 and 70 we injected a **supply 
 | Term | Simple Explanation |
 |------|-------------------|
 | **Simulation** | A computer program that pretends to be a real economy. Like a video game where you are the central bank. |
-| **Policy Action** | A decision made by the government or central bank. In our model: changing interest rates (monetary policy) or changing government spending (fiscal policy). |
+| **Policy Action** | A decision made by the government or central bank. In our model: changing interest rates (monetary policy), changing government spending (fiscal policy), or changing the tax rate (fiscal policy). |
 | **Shock** | A random unexpected event that disturbs the economy. Like a pandemic, an oil crisis, or a financial panic. |
 | **Baseline** | The "normal" version of the simulation, with only small random noise. It's the reference point we compare everything else to. |
 | **Lag** | The delay between a policy action and its effect. If you cut interest rates today, businesses might not borrow and invest for several months. |
@@ -134,7 +140,7 @@ This is the same economy, but between quarters 50 and 70 we injected a **supply 
 This is the **heart** of the project. It defines a class called `Economy` that keeps track of all the variables (inflation, unemployment, etc.) and moves them forward one quarter at a time.
 
 The key method is `step(action)`:
-1. It takes a policy action (change in interest rate, change in spending).
+1. It takes a policy action (change in interest rate, change in spending, change in tax rate).
 2. It samples random shocks.
 3. It applies the economic equations to compute next quarter's values.
 4. It returns the new state, a "reward" score, and whether the episode ended.
@@ -146,7 +152,7 @@ Think of it like a turn-based game: every quarter, the AI (or demo rule) makes a
 This file stores all the "knobs and dials" of the economy in two dataclasses:
 
 - `EconomyConfig` — parameters like "how much does a rate cut boost demand?" (`alpha_2`), "how steep is the Phillips Curve?" (`beta`), etc.
-- `RewardConfig` — weights for the welfare function. Right now we penalize high inflation and unemployment, reward growth, and lightly penalize debt.
+- `RewardConfig` — weights for the welfare function. We penalize deviations of inflation and unemployment from their targets, reward growth above potential, and lightly penalize debt above its sustainable level.
 
 If you want to experiment, try changing these numbers and re-running the demo!
 
@@ -154,7 +160,7 @@ If you want to experiment, try changing these numbers and re-running the demo!
 
 This is the script you actually run. It does three things:
 
-1. **Defines a policy rule** — a simple formula that looks at the current economy and decides what to do. It's basically a stripped-down Taylor Rule with a fiscal component.
+1. **Defines a policy rule** — a simple formula that looks at the current economy and decides what to do. It's basically a stripped-down Taylor Rule with two fiscal components: government spending and the tax rate.
 2. **Runs the simulation** — loops for 200 quarters, applying the rule each step.
 3. **Draws the charts** — uses Matplotlib to create the figures you see in `outputs/figures/`.
 
@@ -168,9 +174,9 @@ Milestone 1 was about building the **world**. The next milestones will bring in 
 
 | Milestone | What happens |
 |-----------|-------------|
-| **Milestone 2** | Wrap the economy in a **Gymnasium environment** — a standard interface that RL libraries can connect to. |
+| **Milestone 2** | Wrap the economy in a **Gymnasium environment** — a standard interface that RL libraries can connect to. The agent will see inflation, unemployment, growth, debt, etc. and choose three actions: how much to move interest rates, spending, and taxes. |
 | **Milestone 3** | Train a **Soft Actor-Critic (SAC)** agent to learn its own policy rule through trial and error. |
-| **Milestone 4** | Compare the AI against the Taylor Rule and a random policy. |
+| **Milestone 4** | Compare the AI against the Taylor Rule and a random policy. Can the AI discover better ways to combine monetary and fiscal tools? |
 | **Milestone 5** | Run **ablation studies** — e.g., "what if people had perfect foresight instead of adaptive expectations?" |
 | **Milestone 6** | Create **Manim animations** to visualize how the AI thinks and reacts to crises. |
 
@@ -191,7 +197,7 @@ All dependencies are listed in `requirements.txt`.
 
 ## 🤝 Tips for Playing Around
 
-- **Change the policy rule:** Open `experiments/demo_economy.py` and tweak the numbers in `taylor_policy()`. What happens if the central bank is more aggressive? More passive?
+- **Change the policy rule:** Open `experiments/demo_economy.py` and tweak the numbers in `taylor_policy()`. What happens if the central bank is more aggressive? More passive? What if the government raises taxes faster when debt is high?
 - **Change the economy:** Open `src/utils/config.py` and tweak `alpha_1`, `beta`, `gamma`, etc. What makes the economy more stable? More volatile?
 - **Change the shocks:** In `demo_economy.py`, modify when the demand/supply shocks happen or how strong they are.
 

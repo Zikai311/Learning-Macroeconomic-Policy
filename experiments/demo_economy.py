@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from src.models.economy import Economy
-from src.utils.config import EconomyConfig, RewardConfig
+from src.utils.config import EconomyConfig, RewardConfig, TaylorPolicyConfig
 
 
 # --------------------------------------------------------------------------- #
@@ -29,19 +29,21 @@ from src.utils.config import EconomyConfig, RewardConfig
 def taylor_policy(obs: dict, cfg: EconomyConfig) -> tuple:
     """
     Simple rule-based policy for demo purposes.
-    Monetary:  delta_r = phi_pi * (pi - pi_star) + phi_u * (u - u_star)
-    Fiscal:    delta_G = -psi_g * (g - g_star)  - psi_d * (d - d_star)
+    Monetary:  delta_r   = phi_pi * (pi - pi_star) + phi_u * (u - u_star)
+    Fiscal:    delta_G   = -psi_g * (g - g_star)  - psi_d * (d - d_star)
+               delta_tau = +psi_tau * (d - d_star)      (raise taxes when debt is high)
     """
-    phi_pi, phi_u = 0.5, 0.2
-    psi_g, psi_d = 0.10, 0.03
+    policy_cfg = TaylorPolicyConfig()
 
-    delta_r = phi_pi * (obs["pi"] - cfg.pi_star) + phi_u * (obs["u"] - cfg.u_star)
-    delta_G = -psi_g * (obs["g"] - cfg.g_star) - psi_d * (obs["d"] - cfg.d_star)
+    delta_r = policy_cfg.phi_pi * (obs["pi"] - cfg.pi_star) + policy_cfg.phi_u * (obs["u"] - cfg.u_star)
+    delta_G = -policy_cfg.psi_g * (obs["g"] - cfg.g_star) - policy_cfg.psi_d * (obs["d"] - cfg.d_star)
+    delta_tau = policy_cfg.psi_tau * (obs["d"] - cfg.d_star)
 
     # clip to action bounds
-    delta_r = np.clip(delta_r, -2.5, 2.5)
-    delta_G = np.clip(delta_G, -5.0, 5.0)
-    return delta_r, delta_G
+    delta_r = np.clip(delta_r, *policy_cfg.delta_r_bounds)
+    delta_G = np.clip(delta_G, *policy_cfg.delta_G_bounds)
+    delta_tau = np.clip(delta_tau, *policy_cfg.delta_tau_bounds)
+    return delta_r, delta_G, delta_tau
 
 
 # --------------------------------------------------------------------------- #
@@ -67,8 +69,12 @@ def simulate(seed: int = 42, steps: int = 200, shock_scenario: str = "baseline")
         else:
             eps_d = eps_s = None
 
-        obs, reward, done, info = econ.step(action, demand_shock=eps_d, supply_shock=eps_s)
-        if done:
+        obs, reward, terminated, truncated, info = econ.step(
+            action,
+            demand_shock=eps_d,
+            supply_shock=eps_s,
+        )
+        if terminated or truncated:
             break
 
     return econ.get_history()
@@ -107,21 +113,42 @@ def plot_trajectory(history: list, out_dir: Path, title_suffix: str = ""):
     print(f"Saved static plot: {fname}")
     plt.close(fig)
 
-    # --- action plot ---
-    fig, ax = plt.subplots(figsize=(10, 4))
+    # --- action + reward plot ---
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), gridspec_kw={"height_ratios": [1, 1]})
+
+    # Top: policy actions
+    ax = axes[0]
     dr = [h.get("delta_r", 0.0) for h in history]
     dG = [h.get("delta_G", 0.0) for h in history]
+    dt = [h.get("delta_tau", 0.0) for h in history]
     ax.plot(steps, dr, label="Δr (monetary)", color="purple")
     ax.plot(steps, dG, label="ΔG (fiscal)", color="teal")
+    ax.plot(steps, dt, label="Δτ (tax)", color="crimson", ls="--")
     ax.axhline(0, color="black", lw=0.5)
     ax.set_ylabel("Policy Action")
-    ax.set_xlabel("Quarter")
-    ax.legend()
+    ax.legend(loc="upper right")
     ax.grid(True, alpha=0.3)
     ax.set_title(f"Policy Actions {title_suffix}")
+
+    # Bottom: reward (economic health)
+    ax2 = axes[1]
+    rewards = [h.get("reward", 0.0) for h in history]
+    ax2.plot(steps, rewards, color="darkgreen", lw=1.2, label="Reward")
+    ax2.axhline(0, color="black", lw=0.5)
+    # Shade positive / negative regions for intuitive reading
+    ax2.fill_between(steps, rewards, 0, where=[r >= 0 for r in rewards],
+                     color="green", alpha=0.15, interpolate=True)
+    ax2.fill_between(steps, rewards, 0, where=[r < 0 for r in rewards],
+                     color="red", alpha=0.15, interpolate=True)
+    ax2.set_ylabel("Economic Welfare (Reward)")
+    ax2.set_xlabel("Quarter")
+    ax2.grid(True, alpha=0.3)
+    ax2.set_title(f"Economic Health Over Time {title_suffix}")
+
+    plt.tight_layout()
     fname2 = out_dir / f"actions{title_suffix.replace(' ', '_')}.png"
     fig.savefig(fname2, dpi=200)
-    print(f"Saved action plot: {fname2}")
+    print(f"Saved action + reward plot: {fname2}")
     plt.close(fig)
 
 
@@ -174,35 +201,32 @@ class EconomyDynamics(Scene):
 
         labels = axes.get_axis_labels(x_label="t", y_label="value")
 
-        pi_dots = VGroup(*[
-            Dot(axes.c2p(t, v), radius=0.03, color=RED)
-            for t, v in zip(steps, pi_n)
-        ])
-        u_dots = VGroup(*[
-            Dot(axes.c2p(t, v), radius=0.03, color=BLUE)
-            for t, v in zip(steps, u_n)
-        ])
-        g_dots = VGroup(*[
-            Dot(axes.c2p(t, v), radius=0.03, color=GREEN)
-            for t, v in zip(steps, g_n)
-        ])
+        # Build connected-line paths instead of scattered dots
+        def make_path(values, color):
+            path = VMobject(stroke_color=color, stroke_width=2, stroke_opacity=0.9)
+            pts = [axes.c2p(t, v) for t, v in zip(steps, values)]
+            path.set_points_as_corners(pts)
+            return path
+
+        pi_path = make_path(pi_n, RED)
+        u_path = make_path(u_n, BLUE)
+        g_path = make_path(g_n, GREEN)
 
         legend = VGroup(
-            Dot(color=RED).scale(0.6),
-            Text("π", font_size=20).next_to(Dot(color=RED), RIGHT),
-            Dot(color=BLUE).scale(0.6).shift(DOWN*0.4),
-            Text("u", font_size=20).next_to(Dot(color=BLUE).shift(DOWN*0.4), RIGHT),
-            Dot(color=GREEN).scale(0.6).shift(DOWN*0.8),
-            Text("g", font_size=20).next_to(Dot(color=GREEN).shift(DOWN*0.8), RIGHT),
+            Line(ORIGIN, RIGHT*0.3, color=RED, stroke_width=3),
+            Text("π", font_size=20).next_to(Line(ORIGIN, RIGHT*0.3, color=RED), RIGHT),
+            Line(ORIGIN, RIGHT*0.3, color=BLUE, stroke_width=3).shift(DOWN*0.4),
+            Text("u", font_size=20).next_to(Line(ORIGIN, RIGHT*0.3, color=BLUE).shift(DOWN*0.4), RIGHT),
+            Line(ORIGIN, RIGHT*0.3, color=GREEN, stroke_width=3).shift(DOWN*0.8),
+            Text("g", font_size=20).next_to(Line(ORIGIN, RIGHT*0.3, color=GREEN).shift(DOWN*0.8), RIGHT),
         ).to_corner(UR)
 
         self.play(Create(axes), Write(labels))
         self.play(FadeIn(legend))
 
-        # Animate trajectories by revealing progressively
-        self.play(Create(pi_dots), run_time=4, rate_func=linear)
-        self.play(Create(u_dots),  run_time=4, rate_func=linear)
-        self.play(Create(g_dots),  run_time=4, rate_func=linear)
+        self.play(Create(pi_path), run_time=4, rate_func=linear)
+        self.play(Create(u_path),  run_time=4, rate_func=linear)
+        self.play(Create(g_path),  run_time=4, rate_func=linear)
 
         self.wait(2)
 '''
@@ -210,6 +234,9 @@ class EconomyDynamics(Scene):
 
 def write_manim_scene(out_dir: Path):
     scene_path = out_dir / "manim_scenes.py"
+    if scene_path.exists():
+        print(f"Kept existing Manim scene: {scene_path}")
+        return
     scene_path.write_text(MANIM_SCENE)
     print(f"Wrote Manim scene template: {scene_path}")
 

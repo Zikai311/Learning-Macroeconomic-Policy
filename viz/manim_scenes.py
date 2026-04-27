@@ -5,7 +5,7 @@ from pathlib import Path
 
 class EconomyDynamics(Scene):
     """
-    Animate a single macroeconomic trajectory with connected line paths.
+    Animate a single macroeconomic trajectory.
     Expects a JSON file `outputs/figures/demo_history.json` produced by
     the demo script.
     """
@@ -43,34 +43,29 @@ class EconomyDynamics(Scene):
 
         labels = axes.get_axis_labels(x_label="t", y_label="value")
 
-        # --- Build connected line paths (VMobject) for each series ---
-        def build_path(data, color):
-            """Create a VMobject path through all points."""
-            path = VMobject(stroke_color=color, stroke_width=2)
-            # Convert first point to Manim coordinates
-            points = [axes.c2p(t, v) for t, v in zip(steps, data)]
-            path.set_points_as_corners(points)
+        # Build connected-line paths instead of scattered dots
+        def make_path(values, color):
+            path = VMobject(stroke_color=color, stroke_width=2, stroke_opacity=0.9)
+            pts = [axes.c2p(t, v) for t, v in zip(steps, values)]
+            path.set_points_as_corners(pts)
             return path
 
-        pi_path = build_path(pi_n, RED)
-        u_path  = build_path(u_n,  BLUE)
-        g_path  = build_path(g_n,  GREEN)
+        pi_path = make_path(pi_n, RED)
+        u_path = make_path(u_n, BLUE)
+        g_path = make_path(g_n, GREEN)
 
-        # --- Legend ---
         legend = VGroup(
-            Dot(color=RED).scale(0.6),
-            Text("π", font_size=20).next_to(Dot(color=RED), RIGHT),
-            Dot(color=BLUE).scale(0.6).shift(DOWN*0.4),
-            Text("u", font_size=20).next_to(Dot(color=BLUE).shift(DOWN*0.4), RIGHT),
-            Dot(color=GREEN).scale(0.6).shift(DOWN*0.8),
-            Text("g", font_size=20).next_to(Dot(color=GREEN).shift(DOWN*0.8), RIGHT),
+            Line(ORIGIN, RIGHT*0.3, color=RED, stroke_width=3),
+            Text("π", font_size=20).next_to(Line(ORIGIN, RIGHT*0.3, color=RED), RIGHT),
+            Line(ORIGIN, RIGHT*0.3, color=BLUE, stroke_width=3).shift(DOWN*0.4),
+            Text("u", font_size=20).next_to(Line(ORIGIN, RIGHT*0.3, color=BLUE).shift(DOWN*0.4), RIGHT),
+            Line(ORIGIN, RIGHT*0.3, color=GREEN, stroke_width=3).shift(DOWN*0.8),
+            Text("g", font_size=20).next_to(Line(ORIGIN, RIGHT*0.3, color=GREEN).shift(DOWN*0.8), RIGHT),
         ).to_corner(UR)
 
-        # --- Animate ---
         self.play(Create(axes), Write(labels))
         self.play(FadeIn(legend))
 
-        # Draw each trajectory progressively
         self.play(Create(pi_path), run_time=4, rate_func=linear)
         self.play(Create(u_path),  run_time=4, rate_func=linear)
         self.play(Create(g_path),  run_time=4, rate_func=linear)

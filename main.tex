@@ -1,0 +1,245 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb, graphicx, booktabs}
+\usepackage{geometry}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta}
+\geometry{margin=1in}
+\title{Learning Macroeconomic Policy via Reinforcement Learning: \\ A Dynamic Control Approach (Demo) }
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We propose a reinforcement learning (RL) framework in which a neural policy learns to conduct macroeconomic stabilization policy in a simulated dynamic economy. The economy is modeled as a stochastic, nonlinear system with lagged responses, expectations formation, and fiscal-monetary interactions. Using a Soft Actor-Critic (SAC) architecture, the agent learns continuous policy interventions that optimize a multi-objective welfare function balancing inflation, unemployment, growth, and debt sustainability. We benchmark against rule-based policies and evaluate robustness under structural shocks.
+\end{abstract}
+
+\section{Introduction}
+Macroeconomic policy is fundamentally a dynamic control problem under uncertainty. Classical approaches (e.g., Taylor rules, DSGE optimization) rely on fixed functional forms and strong assumptions. In contrast, reinforcement learning offers a data-driven method for discovering adaptive policies in nonlinear environments. This paper formalizes macroeconomic stabilization as a Markov Decision Process and investigates whether an RL agent can learn robust policy rules.
+
+\section{MDP Formulation}
+We define the system as:
+\begin{align}
+    s_{t+1} = f(s_t, a_t, \epsilon_t), \quad r_t = R(s_t, a_t)
+\end{align}
+where $\epsilon_t$ is a stochastic shock.
+This is the basic reinforcement learning picture. At each time step, the agent observes the current state $s_t$, takes an action $a_t$, and the environment responds by moving to a new state $s_{t+1}$ and giving a reward $r_t$. Unlike ordinary supervised learning, there is no correct label telling the model the perfect action in each situation. Instead, the agent has to discover a good policy by trial and error. The goal is not to maximize reward just for one step, but to choose actions that lead to high reward over a long sequence of future steps. That is why RL is naturally suited to policy problems where today's move affects tomorrow's situation.
+
+\subsection{State Space}
+\begin{align}
+    s_t = [\pi_t, u_t, g_t, r_t, d_t, \mathbb{E}_t\pi_{t+1}, \tau_t]
+\end{align}
+The state is the information the agent gets to see before it acts. In ML language, you can think of this as the feature vector fed into the network. A useful state should summarize everything important about the current situation so that the agent can make a sensible decision. In this project, the state contains inflation, unemployment, growth, the interest rate, debt, expected inflation, and the tax rate. Together these variables give the agent a snapshot of both current macro conditions and the policy stance already in place.
+
+\subsection{Action Space}
+\begin{align}
+    a_t = [\Delta r_t, \Delta G_t, \Delta \tau_t]
+\end{align}
+The action is what the agent controls. Here the action is continuous, not discrete, which means the model is not choosing from a short menu like ``raise'' or ``cut.'' Instead it outputs real-valued changes to the policy instruments. That makes the problem closer to regression than classification, but the training signal is still reward-based rather than label-based. Continuous action spaces are one reason we use SAC later: it is a popular RL algorithm designed specifically to learn smooth policies in continuous control tasks.
+
+\section{Economic Model}
+
+\subsection{Aggregate Demand with Lag}
+\begin{align}
+    g_t = \alpha_1 G_{t-1} - \alpha_2 r_{t-1} + \epsilon_t^d
+\end{align}
+This equation says that current GDP growth is driven by last period's policy stance plus a random demand disturbance. Government spending enters with a positive sign because extra public spending directly adds to demand for goods and services, which tends to raise output. The interest rate enters with a negative sign because higher borrowing costs discourage household consumption and business investment. The lag matters because policy does not work instantly: a rate rise today does not cancel investment plans immediately, and new government spending projects also take time to filter through the economy. The shock term $\epsilon_t^d$ captures unexpected swings in private demand, such as a collapse in consumer confidence or a sudden borrowing boom.
+
+\subsection{Expectations-Augmented Phillips Curve}
+\begin{align}
+    \pi_t = \mathbb{E}_t\pi_{t+1} + \beta (g_t - g^*) + \epsilon_t^s
+\end{align}
+This is the model's inflation equation. It says inflation depends partly on what people expect inflation to be, and partly on whether the economy is running hotter or colder than its normal sustainable speed $g^*$. If growth is above $g^*$, firms face stronger demand, tighter labor markets, and more pricing power, so inflation tends to rise. If growth is below $g^*$, those pressures weaken and inflation tends to fall. The expectations term matters because wage bargaining and price-setting are forward-looking: if firms and workers think inflation will be high, they behave in ways that help make it high. The supply shock $\epsilon_t^s$ captures cost-side surprises such as an energy spike, a shipping disruption, or a sudden fall in productivity.
+
+\subsection{Expectations Formation (Adaptive)}
+\begin{align}
+    \mathbb{E}_t\pi_{t+1} = \rho \pi_t + (1-\rho) \mathbb{E}_{t-1}\pi_t
+\end{align}
+This equation explains where inflation expectations come from. Rather than assuming households and firms know the true model, we assume they learn gradually from what they have recently seen. The parameter $\rho$ controls how quickly expectations react to current inflation. A high $\rho$ means people update their beliefs aggressively, so a recent inflation surge quickly changes what they expect next. A low $\rho$ means beliefs are sticky and slow to move. This mechanism is important because it creates persistence: once inflation rises, expectations may also rise, and then those expectations feed back into the Phillips curve above.
+
+\subsection{Okun's Law}
+\begin{align}
+    u_t = u_{t-1} - \gamma (g_t - g^*)
+\end{align}
+This is the unemployment equation. It says that what really matters for labor market improvement is not just positive growth, but growth relative to the economy's normal pace $g^*$. If the economy grows faster than its trend, firms usually need more workers, so unemployment falls. If growth is weak relative to trend, firms hire less or even lay workers off, so unemployment rises. The parameter $\gamma$ measures how sensitive unemployment is to growth surprises. This creates the core stabilization trade-off in the model: policy that boosts demand can lower unemployment, but through the Phillips curve it may also push inflation up.
+
+\subsection{Debt Dynamics}
+\begin{align}
+    d_t = d_{t-1} + G_t - \tau_t
+\end{align}
+This equation tracks the government debt ratio in a very stripped-down way. Debt today equals debt yesterday plus spending minus tax revenue. If the government spends more than it collects, it runs a deficit and debt rises; if it collects more than it spends, debt falls. In a richer university-level model, debt dynamics would usually include interest payments, the size of GDP, and sometimes separate cyclical tax bases. Here we keep it simple so the strategic trade-off is easy to see: fiscal support can stabilize output in the short run, but persistent deficits eventually worsen debt sustainability.
+
+\subsection{Policy Accumulation}
+\begin{align}
+    r_t &= r_{t-1} + \Delta r_t \\
+    G_t &= G_{t-1} + \Delta G_t \\
+    \tau_t &= \tau_{t-1} + \Delta \tau_t
+\end{align}
+These equations explain what the agent actually controls. It does not choose the full level of rates, spending, or taxes from scratch every quarter; instead it chooses how much to change them. That is more realistic because real policymakers typically make incremental adjustments rather than resetting the whole economy in one move. It also creates inertia in policy: a sequence of small positive $\Delta r_t$ moves can gradually build up into a tight monetary stance, while repeated negative fiscal changes can slowly produce austerity. This accumulation rule is one reason the environment becomes dynamic and path-dependent: today's decision changes tomorrow's starting point.
+
+\section{Reward Function}
+In the milestone-one simulator, welfare is scored relative to policy targets:
+\begin{align}
+    r_t = - w_1 (\pi_t - \pi^*)^2 - w_2 (u_t - u^*)^2 + w_3 (g_t - g^*) - w_4 (d_t - d^*)
+\end{align}
+The reward is the agent's learning signal. In supervised learning, the loss tells the model how wrong its prediction was relative to a known answer. In RL, there usually is no known best action, so we instead design a reward that expresses what ``good performance'' means. Here, the agent is rewarded when inflation, unemployment, growth, and debt are close to desirable targets. The squared terms mean being far from target is punished more heavily than being slightly off target. Once the reward is defined, the RL algorithm tries to learn a policy that maximizes expected cumulative reward over time, not just the immediate reward from one quarter.
+
+\section{SAC Objective}
+\begin{align}
+    J(\pi) = \mathbb{E}\left[\sum_t r_t + \alpha H(\pi(\cdot|s_t))\right]
+\end{align}
+Here $\pi$ means the policy: the rule that maps states to actions. So $J(\pi)$ means ``how good is this whole policy?'' More precisely, it is the expected long-run performance of the policy when we let it interact with the economy over time. The expectation symbol $\mathbb{E}$ appears because outcomes are random: the policy may sample different actions, and the economy itself contains shocks. So SAC is not optimizing one single path of the economy; it is optimizing average performance across many possible trajectories.
+
+The first term inside $J(\pi)$ is the sum of rewards over time, so if a policy keeps inflation and unemployment near target while supporting growth and containing debt, its $J(\pi)$ will be high. The second term uses entropy, written as $H(\pi(\cdot|s_t))$. Entropy measures how spread out or random the policy is. SAC adds this term so the policy keeps exploring instead of collapsing too early onto one narrow behavior. The coefficient $\alpha$ controls how much we care about exploration relative to pure reward.
+
+The Q-function is not written explicitly inside this formula, but it is how SAC makes this objective trainable. In principle, to improve $\pi$, we would like to know which actions lead to high future reward. That long-run usefulness is exactly what the critic estimates through
+\[
+Q(s_t,a_t) \approx \mathbb{E}\left[\sum_{k=t}^{T} \gamma^{\,k-t} r_k \,\middle|\, s_t, a_t\right].
+\]
+So you can think of $J(\pi)$ as the overall target we want to maximize, and $Q(s,a)$ as the critic's learned tool for judging which local action choices help increase that target. The actor improves $\pi$ by shifting probability toward actions that the critic scores highly, while SAC still keeps some randomness through the entropy term.
+
+\section{Neural Network Architecture}
+
+\subsection{Actor (Policy)}
+\begin{itemize}
+    \item Input: $s_t$
+    \item Architecture: MLP with 2--3 hidden layers
+    \item Output: Gaussian policy parameters $(\mu, \sigma)$
+\end{itemize}
+The actor is the network that actually chooses actions. Since you already know MLPs, you can think of the actor as an MLP that maps the state vector to a distribution over actions. In SAC, the actor usually outputs the mean $\mu$ and scale $\sigma$ of a Gaussian distribution, then an action is sampled from that distribution. This is useful because the agent needs exploration: early in training it should try different actions rather than committing too quickly to one fixed rule. Later, as learning improves, the sampled actions become concentrated around better decisions.
+
+\subsection{Critic (Q-function)}
+\begin{itemize}
+    \item Input: $(s_t, a_t)$
+    \item Output: $Q(s_t, a_t)$
+\end{itemize}
+The critic is a separate network that evaluates actions rather than choosing them. Its job is to estimate the \emph{Q-function}, which means the expected total future reward obtained by taking action $a_t$ in state $s_t$ and then continuing with the current policy. The discount factor $\gamma \in (0,1)$ makes near-future rewards count a bit more than distant-future rewards, which keeps the sum well behaved and reflects the idea that immediate consequences are usually more certain than very distant ones. This is the key RL idea that differs from ordinary regression: the model must learn not only whether an action helps right now, but whether it leads to better downstream states. The actor proposes actions, and the critic scores how promising those actions are in long-run terms.
+
+\subsection{SAC Architecture Diagram}
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    semithick,
+    font=\footnotesize,
+    box/.style={draw, align=center, minimum width=2.9cm, minimum height=1.15cm},
+    note/.style={font=\scriptsize, fill=white, inner sep=1pt}
+]
+    \node[box] (env) at (0, 4.8) {Macro Economy\\Environment};
+    \node[box] (policy) at (6.6, 4.8) {Policy\\Network};
+    \node[box] (entropy) at (13.0, 4.8) {Entropy\\Bonus};
+
+    \node[box] (buffer) at (0.0, 1.7) {Replay\\Buffer};
+    \node[box] (critic) at (4.6, 1.7) {Critic\\Q-Network};
+    \node[box] (target) at (9.1, 1.7) {Target\\Value};
+
+    \node[box] (closs) at (4.6, -1.2) {Critic\\Loss};
+    \node[box] (aloss) at (11.5, -1.2) {Actor\\Loss};
+
+    \draw[->] ([yshift=8pt]env.east) -- node[above, note] {state $s_t$} ([yshift=8pt]policy.west);
+    \draw[->] ([yshift=-8pt]policy.west) -- node[below, note] {action $a_t=(\Delta r,\Delta G,\Delta \tau)$} ([yshift=-8pt]env.east);
+    \draw[->] (policy.east) -- node[above, note] {$\pi_\phi$} (entropy.west);
+
+    \draw[->] (env.south) -- node[left, note] {store transition} (buffer.north);
+    \draw[->] (buffer.east) -- node[above, note] {sample batch} (critic.west);
+    \draw[->] ([yshift=8pt]buffer.east) -- ++(1.0,0) |- ([yshift=8pt]target.west);
+    \node[note] at (7.1, 2.35) {$r_t,\ s_{t+1}$};
+
+    \draw[->, dashed] ([yshift=14pt]critic.east) -- node[above, note] {soft update} ([yshift=14pt]target.west);
+    \draw[->] ([xshift=10pt]policy.south) -- ++(0,-0.9) -| ([xshift=-12pt]target.north);
+    \draw[->] ([xshift=-10pt]entropy.south) -- ++(0,-1.1) -| ([xshift=12pt]target.north);
+    \node[note] at (11.7, 3.2) {entropy correction};
+
+    \draw[->] (critic.south) -- node[left, note] {$Q_\theta(s_t,a_t)$} (closs.north);
+    \draw[->] (target.south) -- ++(0,-0.6) -| (closs.east);
+    \node[note] at (7.25, -0.05) {critic target $y_t$};
+    \draw[->] (closs.north) -- ++(0,0.55) -| ([xshift=10pt]critic.south);
+    \node[note] at (5.55, -0.15) {update critic};
+
+    \draw[->] ([xshift=-10pt]policy.south) -- ++(0,-1.0) -| ([xshift=-14pt]aloss.north);
+    \draw[->] (critic.east) -- ++(1.0,0) |- (aloss.west);
+    \node[note] at (8.5, -0.95) {$Q_\theta(s_t,a'_t)$};
+    \draw[->] ([xshift=10pt]entropy.south) -- ++(0,-2.6) ([xshift=12pt]aloss.north);
+    \node[note] at (13.25, 0.35) {entropy term};
+    \draw[->] (aloss.north) -- ++(0,0.65) -| ([xshift=14pt]policy.south);
+    \node[note] at (11.2, -0.1) {update actor};
+\end{tikzpicture}
+\caption{Simplified SAC data flow for the macroeconomic policy project. For clarity, one critic is shown; practical SAC often uses two Q-networks.}
+\end{figure}
+
+This figure should now be read as the SAC training flow for your macroeconomic policy environment. The policy sees the macro state $s_t=[\pi_t,u_t,g_t,r_t,d_t,\mathbb{E}_t\pi_{t+1},\tau_t]$ and outputs the three policy moves $(\Delta r_t,\Delta G_t,\Delta \tau_t)$. The environment returns a reward and next state, and the transition is stored in the replay buffer. The critic loop learns $Q_\theta(s_t,a_t)$ by comparing it with a target value built from $r_t$, $s_{t+1}$, the target network, and the entropy-adjusted next action. The actor loop samples actions from the current policy, asks the critic how good they are, and then updates the policy toward higher-value actions while still preserving exploration through the entropy term. For readability the figure shows one critic, but the learning logic is consistent with the SAC setup you would use for this project.
+
+\section{Training Algorithm}
+\noindent\textbf{Soft Actor-Critic for Policy Learning}
+\begin{enumerate}
+    \item Initialize networks and replay buffer.
+    \item For each episode:
+    \begin{enumerate}
+        \item Reset the environment.
+        \item For $t = 1$ to $T$:
+        \begin{enumerate}
+            \item Sample action $a_t \sim \pi(s_t)$.
+            \item Observe $s_{t+1}$ and $r_t$.
+            \item Store the transition.
+            \item Update the critic via Bellman loss.
+            \item Update the actor via policy gradient.
+        \end{enumerate}
+    \end{enumerate}
+\end{enumerate}
+The training loop ties the whole RL system together. Each pass through the environment generates experience tuples of the form $(s_t, a_t, r_t, s_{t+1})$. These are stored in a replay buffer, which is just a memory bank of past transitions. Instead of learning only from the most recent step, SAC samples batches from this buffer and uses gradient descent to update the networks. The critic is trained to better predict long-run value, usually through a Bellman-style target that bootstraps from estimated future values. The actor is then updated to place more probability on actions that the critic says have high value. So the big picture is: collect experience, improve the critic's judgment, then improve the actor using that judgment.
+
+\section{Experimental Design}
+
+\subsection{Baselines}
+\begin{itemize}
+    \item Taylor rule
+    \item Random policy
+\end{itemize}
+
+\subsection{Shock Scenarios}
+\begin{itemize}
+    \item Demand shocks ($\epsilon^d$)
+    \item Supply shocks ($\epsilon^s$)
+    \item Structural breaks
+\end{itemize}
+
+\subsection{Metrics}
+\begin{itemize}
+    \item Variance of inflation
+    \item Variance of unemployment
+    \item Mean GDP growth
+    \item Debt trajectory
+    \item Cumulative welfare
+\end{itemize}
+
+\section{Ablation Studies}
+We analyze:
+\begin{itemize}
+    \item Effect of removing expectations
+    \item Effect of removing lag structure
+    \item Sensitivity to reward weights
+\end{itemize}
+
+\section{System Diagram}
+\begin{center}
+\begin{tikzpicture}[node distance=2cm]
+\node (state) [draw] {State $s_t$};
+\node (agent) [draw, right of=state] {RL Agent};
+\node (action) [draw, right of=agent] {Action $a_t$};
+\node (env) [draw, below of=agent] {Economy};
+\draw[->] (state) -- (agent);
+\draw[->] (agent) -- (action);
+\draw[->] (action) -- (env);
+\draw[->] (env) -- (state);
+\end{tikzpicture}
+\end{center}
+
+\section{Discussion}
+This framework highlights the role of learning-based control in macroeconomics. Challenges include model misspecification, reward alignment, and generalization under structural change.
+
+\section{Conclusion}
+We demonstrate a reinforcement learning approach to macroeconomic policy design. Future work includes multi-agent economies and real-world calibration.
+
+\end{document}

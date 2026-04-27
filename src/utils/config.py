@@ -27,7 +27,7 @@ class EconomyConfig:
     gamma: float = 0.15       # Okun coefficient
 
     # --- Debt Dynamics (eq 8) ---
-    tau: float = 18.0         # tax revenue as % of GDP (simplification)
+    tau: float = 20.0         # initial tax revenue as % of GDP; matches G_0 by default
 
     # --- Shock standard deviations ---
     sigma_d: float = 1.0      # demand shock std
@@ -51,9 +51,11 @@ class EconomyConfig:
     pi_bounds: Tuple[float, float] = (-5.0, 15.0)
     u_bounds: Tuple[float, float] = (0.0, 20.0)
     g_bounds: Tuple[float, float] = (-10.0, 15.0)
-    r_bounds: Tuple[float, float] = (0.0, 20.0)
+    r_bounds: Tuple[float, float] = (0.0, 10.0)
     d_bounds: Tuple[float, float] = (0.0, 200.0)
     E_pi_bounds: Tuple[float, float] = (-5.0, 15.0)
+    tau_bounds: Tuple[float, float] = (0.0, 50.0)      # tax rate % of GDP
+    delta_tau_bounds: Tuple[float, float] = (-2.0, 2.0)  # max quarterly tax change (pp)
 
     # --- Episode settings ---
     dt: float = 0.25          # one step = one quarter
@@ -70,12 +72,44 @@ class RewardConfig:
 
     w1: float = 1.0   # inflation aversion
     w2: float = 1.0   # unemployment aversion
-    w3: float = 0.5   # growth preference
-    w4: float = 0.1   # debt penalty
+    w3: float = 1.0   # growth preference
+    w4: float = 0.05  # debt penalty
 
-    def compute(self, pi: float, u: float, g: float, d: float) -> float:
-        """Quadratic welfare: r_t = -w1*pi^2 - w2*u^2 + w3*g - w4*d"""
-        return -(self.w1 * pi ** 2 +
-                 self.w2 * u ** 2) + \
-                self.w3 * g - \
-                self.w4 * d
+    def compute(
+        self,
+        pi: float,
+        u: float,
+        g: float,
+        d: float,
+        *,
+        pi_star: float,
+        u_star: float,
+        g_star: float,
+        d_star: float,
+    ) -> float:
+        """Quadratic welfare (deviations from target):
+        r_t = -w1*(pi-pi*)^2 - w2*(u-u*)^2 + w3*(g-g*) - w4*(d-d*)
+        """
+        return -(self.w1 * (pi - pi_star) ** 2 +
+                 self.w2 * (u - u_star) ** 2) + \
+                self.w3 * (g - g_star) - \
+                self.w4 * (d - d_star)
+
+
+@dataclass
+class TaylorPolicyConfig:
+    """Coefficients for the hand-written baseline policy used in the demo."""
+
+    # Softer monetary response reduces over-reaction and clipping.
+    phi_pi: float = 0.6
+    phi_u: float = 0.1
+
+    # Mild counter-cyclical fiscal response with debt stabilization.
+    psi_g: float = 0.12
+    psi_d: float = 0.02
+    psi_tau: float = 0.02
+
+    # Action bounds for the baseline controller.
+    delta_r_bounds: Tuple[float, float] = (-2.5, 2.5)
+    delta_G_bounds: Tuple[float, float] = (-5.0, 5.0)
+    delta_tau_bounds: Tuple[float, float] = (-1.5, 1.5)

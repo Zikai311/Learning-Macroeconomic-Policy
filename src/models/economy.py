@@ -6,7 +6,7 @@ Implements equations (4)-(8) from the proposal:
     pi_t = E_t pi_{t+1} + beta*(g_t - g_star) + eps_s           (Phillips Curve)
     E_t pi_{t+1} = rho*pi_t + (1-rho)*E_{t-1} pi_t              (Adaptive Expectations)
     u_t  = u_{t-1} - gamma * g_t                                 (Okun's Law)
-    d_t  = d_{t-1} + G_t - T_t                                   (Debt Dynamics)
+    d_t  = d_{t-1} + G_t - tau_t                                 (Debt Dynamics)
 
 The class is stateful: call step(action) repeatedly.
 """
@@ -39,6 +39,7 @@ class Economy:
         self.r: float = 0.0
         self.d: float = 0.0
         self.E_pi: float = 0.0
+        self.tau: float = 0.0     # current tax rate (% of GDP)
 
         self.G_lag: float = 0.0   # G_{t-1}
         self.r_lag: float = 0.0   # r_{t-1}
@@ -54,7 +55,7 @@ class Economy:
     # ------------------------------------------------------------------ #
 
     def reset(self, seed: Optional[int] = None) -> Dict[str, float]:
-        """Reset economy to initial steady-state (or near it with small noise)."""
+        """Reset economy near the configured baseline with small noise."""
         if seed is not None:
             self.rng = np.random.default_rng(seed)
 
@@ -67,6 +68,7 @@ class Economy:
         self.r        = c.r_0  + noise(0.1)
         self.d        = c.d_0  + noise(1.0)
         self.E_pi     = c.E_pi_0 + noise(0.2)
+        self.tau      = c.tau  + noise(0.3)
 
         self.G_lag    = c.G_0
         self.r_lag    = c.r_0
@@ -81,18 +83,19 @@ class Economy:
 
     def step(
         self,
-        action: Tuple[float, float],
+        action: Tuple[float, float, float],
         demand_shock: Optional[float] = None,
         supply_shock: Optional[float] = None,
-    ) -> Tuple[Dict[str, float], float, bool, Dict[str, Any]]:
+    ) -> Tuple[Dict[str, float], float, bool, bool, Dict[str, Any]]:
         """
         Advance one time-step.
 
         Parameters
         ----------
-        action : (delta_r, delta_G)
-            delta_r  – change in nominal interest rate (pp)
-            delta_G  – change in gov spending (% of GDP)
+        action : (delta_r, delta_G, delta_tau)
+            delta_r    – change in nominal interest rate (pp)
+            delta_G    – change in gov spending (% of GDP)
+            delta_tau  – change in tax rate (% of GDP)
         demand_shock, supply_shock :
             Optional manual overrides.  If None, sampled from N(0, sigma).
 
@@ -100,15 +103,17 @@ class Economy:
         -------
         obs   : dict of current observed state
         reward: scalar welfare
-        done  : True if debt limit exceeded
-        info  : dict with raw shocks and intermediate variables
+        terminated : True if debt limit exceeded
+        truncated  : True if horizon reached
+        info       : dict with raw shocks and intermediate variables
         """
         c = self.cfg
-        delta_r, delta_G = action
+        delta_r, delta_G, delta_tau = action
 
         # --- 1. update accumulated policy instruments -------------------
         self.r = np.clip(self.r_lag + delta_r, *c.r_bounds)
         G_t = np.clip(self.G_lag + delta_G, 0.0, 100.0)   # keep sensible
+        self.tau = np.clip(self.tau + delta_tau, *c.tau_bounds)
 
         # --- 2. sample shocks ------------------------------------------
         eps_d = demand_shock if demand_shock is not None else float(self.rng.normal(0.0, c.sigma_d))
@@ -133,9 +138,9 @@ class Economy:
         self.u = u_prev - c.gamma * (self.g - c.g_star)
         self.u = np.clip(self.u, *c.u_bounds)
 
-        # Eq 8: Debt Dynamics  (simplified: T_t = tau, constant % of GDP)
-        # d_t = d_{t-1} + G_t - tau
-        self.d = self.d + G_t - c.tau
+        # Eq 8: Debt Dynamics
+        # d_t = d_{t-1} + G_t - tau_t
+        self.d = self.d + G_t - self.tau
         self.d = np.clip(self.d, *c.d_bounds)
 
         # --- 4. update lags --------------------------------------------
@@ -144,11 +149,20 @@ class Economy:
         self.E_pi_lag = self.E_pi
 
         # --- 5. reward -------------------------------------------------
-        reward = self.rwd.compute(self.pi, self.u, self.g, self.d)
+        reward = self.rwd.compute(
+            self.pi,
+            self.u,
+            self.g,
+            self.d,
+            pi_star=c.pi_star,
+            u_star=c.u_star,
+            g_star=c.g_star,
+            d_star=c.d_star,
+        )
 
         # --- 6. termination --------------------------------------------
         self.step_count += 1
-        done = self.d > c.debt_limit
+        terminated = self.d > c.debt_limit
         truncated = self.step_count >= c.max_steps
 
         info = {
@@ -157,12 +171,16 @@ class Economy:
             "G_t": G_t,
             "delta_r": delta_r,
             "delta_G": delta_G,
+            "delta_tau": delta_tau,
+            "tau": self.tau,
             "step": self.step_count,
+            "terminated": terminated,
+            "truncated": truncated,
         }
 
         obs = self._obs_dict()
         self._record(obs, action=action, shocks=(eps_d, eps_s), reward=reward)
-        return obs, reward, done or truncated, info
+        return obs, reward, terminated, truncated, info
 
     def get_history(self) -> list:
         """Return list of recorded time-steps for plotting / animation."""
@@ -180,12 +198,13 @@ class Economy:
             "r": self.r,
             "d": self.d,
             "E_pi": self.E_pi,
+            "tau": self.tau,
         }
 
     def _record(
         self,
         obs: Dict[str, float],
-        action: Optional[Tuple[float, float]],
+        action: Optional[Tuple[float, float, float]],
         shocks: Optional[Tuple[float, float]],
         reward: float,
     ) -> None:
@@ -197,6 +216,7 @@ class Economy:
         if action is not None:
             entry["delta_r"] = action[0]
             entry["delta_G"] = action[1]
+            entry["delta_tau"] = action[2]
         if shocks is not None:
             entry["eps_d"] = shocks[0]
             entry["eps_s"] = shocks[1]
