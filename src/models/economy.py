@@ -41,9 +41,9 @@ class Economy:
         self.E_pi: float = 0.0
         self.tau: float = 0.0     # current tax rate (% of GDP)
 
-        self.G_lag: float = 0.0   # G_{t-1}
-        self.r_lag: float = 0.0   # r_{t-1}
-        self.E_pi_lag: float = 0.0
+        self.G_lag: float = 0.0   # Current government-spending level; becomes next period's lag.
+        self.r_lag: float = 0.0   # Current policy rate used as next period's lag.
+        self.E_pi_lag: float = 0.0 # Current expected inflation used as next period's lag.
 
         self.step_count: int = 0
         self.history: list = []   # stores dicts for post-hoc analysis / viz
@@ -70,9 +70,11 @@ class Economy:
         self.E_pi     = c.E_pi_0 + noise(0.2)
         self.tau      = c.tau  + noise(0.3)
 
-        self.G_lag    = c.G_0
-        self.r_lag    = c.r_0
-        self.E_pi_lag = c.E_pi_0
+        # Align the hidden lagged state with the observed reset state so the
+        # first post-reset transition is Markov from the agent's perspective.
+        self.G_lag = float(np.clip(c.G_0, *c.G_bounds))
+        self.r_lag = self.r
+        self.E_pi_lag = self.E_pi
 
         self.step_count = 0
         self.history.clear()
@@ -112,7 +114,7 @@ class Economy:
 
         # --- 1. update accumulated policy instruments -------------------
         self.r = np.clip(self.r_lag + delta_r, *c.r_bounds)
-        G_t = np.clip(self.G_lag + delta_G, 0.0, 100.0)   # keep sensible
+        G_t = np.clip(self.G_lag + delta_G, *c.G_bounds)
         self.tau = np.clip(self.tau + delta_tau, *c.tau_bounds)
 
         # --- 2. sample shocks ------------------------------------------
@@ -199,6 +201,7 @@ class Economy:
             "d": self.d,
             "E_pi": self.E_pi,
             "tau": self.tau,
+            "G": self.G_lag,
         }
 
     def _record(

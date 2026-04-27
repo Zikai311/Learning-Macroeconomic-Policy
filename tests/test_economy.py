@@ -65,14 +65,14 @@ class EconomyDynamicsTests(unittest.TestCase):
             supply_shock=0.0,
         )
 
-        expected_g = cfg.alpha_1 * cfg.G_0 - cfg.alpha_2 * cfg.r_0
-        expected_pi = cfg.E_pi_0 + cfg.beta * (expected_g - cfg.g_star)
-        expected_e_pi = cfg.rho * expected_pi + (1.0 - cfg.rho) * cfg.E_pi_0
+        expected_g = cfg.alpha_1 * pre["G"] - cfg.alpha_2 * pre["r"]
+        expected_pi = pre["E_pi"] + cfg.beta * (expected_g - cfg.g_star)
+        expected_e_pi = cfg.rho * expected_pi + (1.0 - cfg.rho) * pre["E_pi"]
         expected_u = pre["u"] - cfg.gamma * (expected_g - cfg.g_star)
         expected_tau = pre["tau"] - 1.0
-        expected_d = pre["d"] + (cfg.G_0 + 2.0) - expected_tau
+        expected_d = pre["d"] + (pre["G"] + 2.0) - expected_tau
 
-        self.assertTrue(math.isclose(obs["r"], 4.0, rel_tol=0.0, abs_tol=1e-9))
+        self.assertTrue(math.isclose(obs["r"], pre["r"] + 1.0, rel_tol=0.0, abs_tol=1e-9))
         self.assertTrue(math.isclose(obs["g"], expected_g, rel_tol=0.0, abs_tol=1e-9))
         self.assertTrue(math.isclose(obs["pi"], expected_pi, rel_tol=0.0, abs_tol=1e-9))
         self.assertTrue(math.isclose(obs["E_pi"], expected_e_pi, rel_tol=0.0, abs_tol=1e-9))
@@ -127,6 +127,7 @@ class EconomyDynamicsTests(unittest.TestCase):
         history = econ.get_history()
         self.assertEqual(len(history), 1)
         self.assertIn("tau", history[0])
+        self.assertIn("G", history[0])
         self.assertEqual(history[0]["reward"], 0.0)
 
         econ.step((0.5, -1.0, 0.25), demand_shock=0.0, supply_shock=0.0)

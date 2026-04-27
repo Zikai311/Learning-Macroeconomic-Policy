@@ -20,6 +20,8 @@ Today, many countries follow simple **rules of thumb**. For example, the famous 
 
 Before we can train the AI, though, we need a **practice world** — a simulated economy where it can experiment safely. That's what Milestone 1 is.
 
+Milestone 1 is now largely in place. The next step is Milestone 2: wrapping this simulator as a proper `Gymnasium` environment for RL.
+
 ---
 
 ## 🗂️ What This Repo Contains (So Far)
@@ -28,13 +30,17 @@ Before we can train the AI, though, we need a **practice world** — a simulated
 |---------------|-------------|
 | `src/models/economy.py` | The **economic engine**. Contains the equations that move the economy forward one quarter at a time. |
 | `src/utils/config.py` | The **settings menu**. All the numbers that control the economy (how sensitive inflation is to growth, how fast unemployment responds, etc.). |
-| `experiments/demo_economy.py` | The **driver script**. Sets up a simple human-written policy rule, runs the simulation for 200 quarters (50 years), and draws charts. |
+| `run_economy.py` | The **driver script**. Loads an action maker, runs the simulation for a chosen number of quarters, and saves charts plus JSON history. |
+| `sretegies/linear_stretegy.py` | The current **hand-written baseline policy**. It implements a simple linear Taylor-like rule that `run_economy.py` can load. |
+| `sretegies/none_stretegy.py` | A **no-intervention baseline**. It always returns zero policy changes, so the economy evolves without active government or central-bank intervention. |
+| `src/utils/plotting.py` | The shared **plotting module** for simulation histories. |
+| `tests/` | The current **assertion layer**. It checks the core economy equations and the pluggable simulation runner. |
 | `viz/manim_scenes.py` | An **animation template** (optional). Can turn a simulation run into a video using Manim. |
-| `outputs/figures/` | Where the charts and JSON data get saved when you run the demo. |
+| `outputs/figures/` | Where the charts and JSON data get saved when you run the simulator. |
 
 ---
 
-## 🚀 Quick Start: Run the Demo
+## 🚀 Quick Start: Run the Simulator
 
 Make sure you have activated the Python virtual environment (it should already be set up):
 
@@ -45,22 +51,24 @@ cd "Learning Macroeconomic Policy"
 # 2. Activate the virtual environment
 source .venv/bin/activate
 
-# 3. Run the demo
-python experiments/demo_economy.py
+# 3. Run the simulator
+python run_economy.py
+
+# 4. Optional: run the no-intervention baseline
+python run_economy.py --action-maker sretegies.none_stretegy:build_action_maker
 ```
 
 After a few seconds, check the `outputs/figures/` folder. You should see:
 
-- `trajectory(Baseline).png` — a 6-panel chart showing how the economy evolved
-- `actions(Baseline).png` — a chart showing what the policy rule did each quarter
-- `trajectory(Demand_Shock).png` — the same economy, but with a sudden demand crisis
-- `trajectory(Supply_Shock).png` — the same economy, but with a supply-side crisis
+- `trajectory_baseline.png` — a 6-panel chart showing how the economy evolved
+- `actions_baseline.png` — a chart showing what the policy rule did each quarter
+- `history_baseline.json` — the raw recorded trajectory for later analysis
 
 ---
 
 ## 📊 How to Read the Figures
 
-### `trajectory(Baseline).png` — The Economy Over Time
+### `trajectory_baseline.png` — The Economy Over Time
 
 This is a 6-panel chart. Each panel tracks one economic variable across 200 quarters (50 years). The x-axis is always **Quarter** (0 to 200). Let's go through each panel:
 
@@ -88,7 +96,7 @@ This is a 6-panel chart. Each panel tracks one economic variable across 200 quar
 - **What it means:** What households and businesses *think* inflation will be next year. This matters because expectations become self-fulfilling: if workers expect 5% inflation, they demand 5% wage raises, and firms raise prices by 5%.
 - **What to look for:** In our model, people form expectations **adaptively** — they look at recent inflation and slowly update their beliefs. You can see Eπ trailing behind actual inflation.
 
-### `actions(Baseline).png` — What the Policymaker Did
+### `actions_baseline.png` — What the Policymaker Did
 
 This chart shows the **policy actions** taken each quarter:
 
@@ -96,22 +104,34 @@ This chart shows the **policy actions** taken each quarter:
 - **ΔG (fiscal)** — How much the government changed its spending this quarter. Positive = spent more. Negative = austerity.
 - **Δτ (tax)** — How much the government changed the tax rate this quarter. Positive = raised taxes (reduces deficit). Negative = tax cuts (stimulating).
 
-These actions are calculated by a simple **Taylor-like rule** in the demo script. It's not the AI yet — it's a hand-written formula. The AI will replace this later.
+These actions are calculated by a simple **Taylor-like rule** in `sretegies/linear_stretegy.py`. It's not the AI yet — it's a hand-written formula. The AI will replace this later.
 
 #### Economic Health Over Time (bottom panel)
 - **What it means:** The **reward** score each quarter. Think of it as a "report card" for the economy. It penalizes deviations of inflation and unemployment from their targets, rewards growth above potential, and lightly penalizes high debt. **Zero = perfectly on target.** Positive = doing better than target. Negative = missing targets.
 - **What to look for:** A healthy economy hovers near zero. During a crisis, the reward drops sharply into negative territory. Notice how the supply shock scenario drives the reward much lower than baseline — that's stagflation at work.
 
-### `trajectory(Demand_Shock).png`
+### `trajectory_demand_shock.png`
 
 This is the same economy, but between quarters 50 and 70 we injected a **demand shock** — a sudden, unusually large burst of consumer spending (or collapse of it).
+
+Run it with:
+
+```bash
+python run_economy.py --shock-scenario demand_shock --run-name demand_shock
+```
 
 - **What is a demand shock?** Imagine everyone suddenly decides to buy new cars and houses, or the opposite — everyone panics and stops spending. This disturbs the normal flow of the economy.
 - **What to look for:** GDP growth becomes much more volatile during the shock period. Inflation and unemployment swing more wildly. The interest rate shoots up or down as the rule tries to compensate.
 
-### `trajectory(Supply_Shock).png`
+### `trajectory_supply_shock.png`
 
 This is the same economy, but between quarters 50 and 70 we injected a **supply shock** — a sudden change in production costs.
+
+Run it with:
+
+```bash
+python run_economy.py --shock-scenario supply_shock --run-name supply_shock
+```
 
 - **What is a supply shock?** Imagine oil prices suddenly triple because of a war, or a pandemic shuts down factories. It becomes more expensive to produce things, so prices rise even if demand hasn't changed.
 - **What to look for:** Supply shocks are nasty because they cause **stagflation** — inflation goes UP while growth goes DOWN. The policymaker faces a terrible trade-off: raise rates to fight inflation (making unemployment worse), or cut rates to save jobs (making inflation worse).
@@ -154,17 +174,39 @@ This file stores all the "knobs and dials" of the economy in two dataclasses:
 - `EconomyConfig` — parameters like "how much does a rate cut boost demand?" (`alpha_2`), "how steep is the Phillips Curve?" (`beta`), etc.
 - `RewardConfig` — weights for the welfare function. We penalize deviations of inflation and unemployment from their targets, reward growth above potential, and lightly penalize debt above its sustainable level.
 
-If you want to experiment, try changing these numbers and re-running the demo!
+If you want to experiment, try changing these numbers and re-running the simulator.
 
-### `experiments/demo_economy.py`
+### `run_economy.py`
 
 This is the script you actually run. It does three things:
 
-1. **Defines a policy rule** — a simple formula that looks at the current economy and decides what to do. It's basically a stripped-down Taylor Rule with two fiscal components: government spending and the tax rate.
-2. **Runs the simulation** — loops for 200 quarters, applying the rule each step.
-3. **Draws the charts** — uses Matplotlib to create the figures you see in `outputs/figures/`.
+1. **Loads an action maker** — by default it imports the linear Taylor-style policy from `sretegies/linear_stretegy.py`, but later an RL policy can expose the same builder interface.
+2. **Runs the simulation** — loops for the requested number of quarters, applying the chosen action maker each step.
+3. **Saves outputs** — writes the raw JSON history and, unless disabled, calls the plotting module to create the standard figures in `outputs/figures/`.
 
-It also exports the data as JSON so Manim can animate it later.
+The important design change is that the runner no longer cares whether the action comes from a rule, an RL agent, or something else. You swap policies with `--action-maker`.
+
+### `sretegies/linear_stretegy.py`
+
+This file holds the current human-written baseline policy only. It takes the current observed state and turns it into three actions:
+
+- a rate move `Δr`
+- a spending move `ΔG`
+- a tax move `Δτ`
+
+Because it is separate from the simulation loop, we can later replace it with an RL action maker without rewriting the rest of the pipeline.
+
+### `sretegies/none_stretegy.py`
+
+This is the simplest baseline in the project. It always returns:
+
+- `Δr = 0`
+- `ΔG = 0`
+- `Δτ = 0`
+
+That gives us a useful benchmark for the question:
+
+"How much stabilization is really coming from policy, rather than from the economy drifting on its own?"
 
 ---
 
@@ -179,6 +221,32 @@ Milestone 1 was about building the **world**. The next milestones will bring in 
 | **Milestone 4** | Compare the AI against the Taylor Rule and a random policy. Can the AI discover better ways to combine monetary and fiscal tools? |
 | **Milestone 5** | Run **ablation studies** — e.g., "what if people had perfect foresight instead of adaptive expectations?" |
 | **Milestone 6** | Create **Manim animations** to visualize how the AI thinks and reacts to crises. |
+
+---
+
+## ✅ Milestone 2 Readiness
+
+Short answer: **yes, we are ready to start Milestone 2, but Milestone 2 is not built yet.**
+
+What is already ready:
+
+- the economy core exists and is test-covered
+- the action interface already supports the full 3-part policy move `Δr`, `ΔG`, `Δτ`
+- the rollout runner is modular, so RL can later replace a hand-written strategy cleanly
+- `gymnasium`, `torch`, and `stable-baselines3` are already in the environment
+
+What still needs to be done for Milestone 2:
+
+- build `src/env/macro_env.py`
+- decide the final RL observation vector
+- centralize generic action bounds for RL instead of keeping some of them inside the Taylor policy config
+- add environment tests and run Gymnasium's env checker
+
+One important modeling note:
+
+The current policy-maker interface does not expose government spending `G_t`, even though the simulator uses lagged government spending in the transition equations. For RL, we should probably expose `G_t` in the environment observation so the agent gets a proper Markov state.
+
+That means the project is in a good place to begin Milestone 2, and the next clean move is to build the environment wrapper around the simulator we already have.
 
 ---
 
@@ -197,9 +265,11 @@ All dependencies are listed in `requirements.txt`.
 
 ## 🤝 Tips for Playing Around
 
-- **Change the policy rule:** Open `experiments/demo_economy.py` and tweak the numbers in `taylor_policy()`. What happens if the central bank is more aggressive? More passive? What if the government raises taxes faster when debt is high?
+- **Change the policy rule:** Open `sretegies/linear_stretegy.py` and tweak the linear coefficients. What happens if the central bank is more aggressive? More passive? What if the government raises taxes faster when debt is high?
+- **Run a no-intervention baseline:** `python run_economy.py --action-maker sretegies.none_stretegy:build_action_maker`
 - **Change the economy:** Open `src/utils/config.py` and tweak `alpha_1`, `beta`, `gamma`, etc. What makes the economy more stable? More volatile?
-- **Change the shocks:** In `demo_economy.py`, modify when the demand/supply shocks happen or how strong they are.
+- **Change the action source:** Run `python run_economy.py --action-maker your_module:build_action_maker` once you create an RL policy builder with the same interface.
+- **Change the shocks:** In `run_economy.py`, modify when the demand/supply shocks happen or how strong they are.
 
 The best way to learn is to break things and see what happens!
 

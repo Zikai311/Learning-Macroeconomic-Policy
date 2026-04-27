@@ -6,14 +6,14 @@ from pathlib import Path
 class EconomyDynamics(Scene):
     """
     Animate a single macroeconomic trajectory.
-    Expects a JSON file `outputs/figures/demo_history.json` produced by
-    the demo script.
+    Expects a JSON file `outputs/figures/history_baseline.json` produced by
+    `run_economy.py`.
     """
 
     def construct(self):
-        json_path = Path("outputs/figures/demo_history.json")
+        json_path = Path("outputs/figures/history_baseline.json")
         if not json_path.exists():
-            self.add(Text("JSON not found — run demo_economy.py first").scale(0.5))
+            self.add(Text("JSON not found — run run_economy.py first").scale(0.5))
             return
 
         with open(json_path) as f:
