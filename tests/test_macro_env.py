@@ -4,13 +4,14 @@ import sys
 import unittest
 
 import numpy as np
+import gymnasium as gym
 from gymnasium.utils.env_checker import check_env
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from src.env import MacroEnv
+from src.env import ENV_ID, NORMALIZED_ENV_ID, MacroEnv, make_macro_env
 from src.utils.config import EconomyConfig, RewardConfig
 
 
@@ -27,6 +28,23 @@ class MacroEnvTests(unittest.TestCase):
         self.assertIn("tau", info)
         self.assertTrue(math.isclose(float(obs[6]), info["tau"], rel_tol=0.0, abs_tol=1e-6))
         self.assertTrue(math.isclose(float(obs[7]), info["G_t"], rel_tol=0.0, abs_tol=1e-6))
+
+    def test_registered_env_can_be_made(self):
+        env = gym.make(ENV_ID)
+        obs, _ = env.reset(seed=123)
+
+        self.assertEqual(obs.shape, (8,))
+        self.assertEqual(env.unwrapped.__class__.__name__, "MacroEnv")
+        env.close()
+
+    def test_registered_normalized_env_can_be_made(self):
+        env = gym.make(NORMALIZED_ENV_ID)
+        obs, _ = env.reset(seed=123)
+
+        self.assertEqual(obs.shape, (8,))
+        np.testing.assert_allclose(env.action_space.low, -1.0)
+        np.testing.assert_allclose(env.action_space.high, 1.0)
+        env.close()
 
     def test_step_matches_deterministic_transition_equations(self):
         cfg = EconomyConfig(
@@ -89,6 +107,28 @@ class MacroEnvTests(unittest.TestCase):
             ], dtype=np.float32),
         )
         self.assertTrue(env.observation_space.contains(obs))
+
+    def test_normalized_action_wrapper_maps_unit_interval_to_env_bounds(self):
+        cfg = EconomyConfig(max_steps=5)
+        env = make_macro_env(
+            config=cfg,
+            reward_config=RewardConfig(),
+            normalize_actions=True,
+        )
+        env.reset(seed=0)
+
+        _, _, _, _, info = env.step(np.array([1.0, -1.0, 0.5], dtype=np.float32))
+
+        np.testing.assert_allclose(info["normalized_action"], np.array([1.0, -1.0, 0.5], dtype=np.float32))
+        np.testing.assert_allclose(
+            info["raw_action"],
+            np.array([
+                cfg.delta_r_bounds[1],
+                cfg.delta_G_bounds[0],
+                1.0,
+            ], dtype=np.float32),
+            atol=1e-6,
+        )
 
     def test_horizon_sets_truncated_without_termination(self):
         env = MacroEnv(config=EconomyConfig(max_steps=1, debt_limit=500.0), reward_config=RewardConfig())
