@@ -110,6 +110,7 @@ class MacroEnv(gym.Env):
         )
         info["raw_action"] = action_array.copy()
         info["clipped_action"] = clipped_action.copy()
+        info["state"] = dict(obs)
 
         return (
             self._vectorize_obs(obs),

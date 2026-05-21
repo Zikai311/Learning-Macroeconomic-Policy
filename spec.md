@@ -1,6 +1,6 @@
 # Learning Macroeconomic Policy via RL — Implementation Spec
 
-> Living build plan for the current repo. Milestone 1 is largely complete; Milestone 2 is the next implementation target.
+> Living build plan for the current repo. Milestones 1 and 2 are implemented; Milestone 3 is now the active target.
 
 ---
 
@@ -17,14 +17,15 @@
 │   ├── linear_stretegy.py          # linear Taylor-like baseline policy
 │   └── none_stretegy.py            # no-intervention baseline policy
 ├── src/
-│   ├── env/                        # milestone 2 target location
+│   ├── env/                        # MacroEnv registration + wrappers
 │   ├── models/
 │   │   └── economy.py              # state-transition dynamics
 │   ├── policies/                   # reserved for later policy modules
-│   ├── rl/                         # reserved for SAC training code
+│   ├── rl/                         # SAC training code
 │   └── utils/
 │       ├── config.py               # economy, reward, and baseline-policy parameters
 │       └── plotting.py             # reusable plotting helpers
+├── train_sac.py                    # SAC training CLI
 ├── tests/
 │   ├── test_economy.py
 │   └── test_run_economy.py
@@ -59,130 +60,106 @@
 - The dependency stack already includes `gymnasium`, `torch`, and `stable_baselines3`.
 - We can compare human-written baselines before training any RL agent.
 
-### 1.3 Known gaps carried into milestone 2
+### 1.3 What milestone 2 delivered
 
-- There is no `Gymnasium` environment wrapper yet.
-- Action bounds are not fully centralized for RL:
-  - `delta_tau_bounds` lives in `EconomyConfig`
-  - `delta_r_bounds` and `delta_G_bounds` currently live in `TaylorPolicyConfig`
-- The current policy-facing observation does not expose government spending `G_t`, even though the transition equations depend on it. That means the current rollout interface is convenient, but not fully Markov for RL.
+- `MacroEnv` now wraps the simulator through the Gymnasium API.
+- The RL observation vector is finalized as:
+  - `pi, u, g, r, d, E_pi, tau, G`
+- Generic action bounds now live in `EconomyConfig`.
+- The environment is registered and tested.
+- A normalized-action wrapper exists for SAC training.
 
 ---
 
-## 2. Milestone 2 Goal
+## 2. Milestone 3 Goal
 
-Build a `Gymnasium` environment around the existing simulator so an RL agent can interact with the economy through the standard API without duplicating transition logic.
+Train a usable SAC baseline on top of the implemented environment, with saved models, periodic evaluation, checkpoints, and macro-aware training diagnostics.
 
 ### 2.1 Target files
 
-- `src/env/macro_env.py`
-- `src/env/__init__.py`
-- `tests/test_macro_env.py`
+- `src/rl/sac_trainer.py`
+- `src/rl/callbacks.py`
+- `train_sac.py`
+- `tests/test_sac_trainer.py`
 
 ### 2.2 Design principle
 
-`MacroEnv` should wrap `src/models/economy.py`, not reimplement it.
+The SAC trainer should build on the environment and simulator that already exist. Training code should not duplicate environment logic.
 
-The economy model should remain the single source of truth for:
+The RL layer should remain responsible for:
 
-- state transitions
-- reward calculation
-- termination and truncation logic
-- shock sampling
-
----
-
-## 3. Recommended Environment Design
-
-### 3.1 Observation space
-
-Recommended: use an 8-dimensional continuous `Box` so the RL state is as close to Markov as possible.
-
-| Dim | Symbol | Meaning | Typical Range |
-|-----|--------|---------|---------------|
-| 0 | `pi` | Inflation | `[-5, 15]` |
-| 1 | `u` | Unemployment | `[0, 20]` |
-| 2 | `g` | GDP growth | `[-10, 15]` |
-| 3 | `r` | Policy rate | `[0, 10]` |
-| 4 | `d` | Debt/GDP | `[0, 200]` |
-| 5 | `E_pi` | Expected inflation | `[-5, 15]` |
-| 6 | `tau` | Tax take | `[0, 50]` |
-| 7 | `G` | Government spending level | `[0, 100]` |
-
-Why add `G`?
-
-- The next growth step depends on lagged government spending.
-- If `G` stays hidden, the agent is acting in a partially observed environment.
-- For milestone 2, a Markov state is the cleaner default.
-
-### 3.2 Action space
-
-Use a 3-dimensional continuous `Box`:
-
-| Dim | Symbol | Meaning | Recommended Default Bounds |
-|-----|--------|---------|-----------------------------|
-| 0 | `delta_r` | Interest-rate change | `[-0.8, 0.8]` |
-| 1 | `delta_G` | Government spending change | `[-2.0, 2.0]` |
-| 2 | `delta_tau` | Tax change | `[-2.0, 2.0]` |
-
-Recommendation:
-
-- move all generic action bounds into `EconomyConfig` or a new shared action config
-- do not leave RL action limits inside `TaylorPolicyConfig`, because those bounds are not Taylor-specific
-
-### 3.3 Reset / step API
-
-`MacroEnv` should expose:
-
-- `reset(seed=None, options=None) -> obs, info`
-- `step(action) -> obs, reward, terminated, truncated, info`
-- `observation_space`
-- `action_space`
-- `render()` as optional placeholder
-
-### 3.4 Info dictionary
-
-Keep the env `info` dictionary rich enough for debugging and later evaluation:
-
-- `eps_d`
-- `eps_s`
-- `G_t`
-- `tau`
-- `delta_r`
-- `delta_G`
-- `delta_tau`
-- `step`
-- `terminated`
-- `truncated`
+- model construction
+- training/evaluation callbacks
+- checkpointing and metadata saving
+- learning-specific wrappers like normalized actions
 
 ---
 
-## 4. Milestone 2 Test Plan
+## 3. Milestone 3 Training Design
 
-Create `tests/test_macro_env.py` with at least these checks:
+### 3.1 Environment choice
 
-1. `reset()` returns an observation with the expected shape and dtype.
-2. `step()` returns `obs, reward, terminated, truncated, info` in Gymnasium format.
-3. Horizon handling sets `truncated=True` without forcing `terminated=True`.
-4. Debt-limit breach sets `terminated=True`.
-5. Deterministic stepping works when shocks are fixed or seeded.
-6. The environment passes `gymnasium.utils.env_checker.check_env`.
-7. Action clipping and observation bounds behave as expected.
+Use the already-implemented environment:
+
+- `MacroEnv-v0` for native action bounds
+- `MacroEnvNormalized-v0` or the equivalent wrapper path for SAC training
+
+Recommended default for SAC:
+
+- train with normalized actions in `[-1, 1]^3`
+- keep the observation vector unchanged
+
+### 3.2 Model / network
+
+Default SAC network:
+
+```python
+policy_kwargs = dict(
+    net_arch=dict(pi=[256, 256, 128], qf=[256, 256, 128]),
+    activation_fn=torch.nn.ReLU,
+)
+```
+
+### 3.3 Training features
+
+The training entry point should support:
+
+- final model saving
+- best-model saving from periodic evaluation
+- periodic checkpoints
+- JSON metadata about the run
+- episode-level macro metrics
+
+### 3.4 Metrics to log
+
+At minimum:
+
+- episode mean inflation
+- episode std inflation
+- episode mean unemployment
+- episode std unemployment
+- episode mean growth
+- episode mean debt
+- episode max debt
+- episode return
 
 ---
 
-## 5. After Milestone 2
+## 4. Milestone 3 Test Plan
 
-### 5.1 Milestone 3: SAC training
+Create or maintain trainer-focused tests with at least these checks:
 
-Expected files:
+1. the normalized training env builds correctly
+2. the SAC model object can be constructed
+3. callback wiring builds correctly
+4. metadata saving works
+5. a tiny CLI smoke run can save a model
 
-- `src/rl/sac_trainer.py`
-- `sretegies/train_sac.py`
+---
 
-Use `stable_baselines3.SAC` with a custom network config and callbacks for macro metrics.
+## 5. After Milestone 3
 
-### 5.2 Milestone 4: Evaluation
+### 5.1 Milestone 4: Evaluation
 
 Expected files:
 
@@ -195,7 +172,7 @@ Compare at least:
 - no-intervention baseline
 - optional random baseline
 
-### 5.3 Milestone 5: Ablations
+### 5.2 Milestone 5: Ablations
 
 Expected files:
 
@@ -209,7 +186,7 @@ Good first ablations:
 
 ---
 
-## 6. Readiness Assessment
+## 6. Current Assessment
 
 ### 6.1 What is ready
 
@@ -220,30 +197,27 @@ Good first ablations:
 
 ### 6.2 What is not ready yet
 
-- `MacroEnv` itself does not exist.
-- The observation design for RL has not been finalized in code.
-- Generic action bounds are not yet centralized outside the Taylor policy config.
-- There is no environment test suite or env-checker integration yet.
+- the SAC scaffold still needs longer real runs and tuning
+- there is no evaluation/benchmark script yet
+- there is no trained-model action-maker module yet for rollout reuse
 
 ### 6.3 Verdict
 
-Yes, we are ready to start milestone 2.
+Yes, we are actively in milestone 3.
 
 More precisely:
 
-- we are ready to build the environment wrapper now
-- we are not yet ready to start RL training until that wrapper and its tests exist
+- we are ready to run meaningful SAC experiments now
+- we are not yet at milestone 4 until evaluation scripts and model comparisons exist
 
 ---
 
-## 7. Immediate Milestone 2 To-Do List
+## 7. Immediate Milestone 3 To-Do List
 
-1. Add shared RL action bounds to config.
-2. Decide whether the RL observation includes `G_t` explicitly. Recommended: yes.
-3. Implement `src/env/macro_env.py` as a thin wrapper over `Economy`.
-4. Add `tests/test_macro_env.py`.
-5. Run Gymnasium's env checker.
-6. Smoke-test the env with random actions before touching SAC.
+1. Run longer SAC training jobs.
+2. Inspect saved checkpoints and episode metrics.
+3. Add a trained-model strategy module for rollout/evaluation reuse.
+4. Build the milestone 4 evaluation script.
 
 ---
 

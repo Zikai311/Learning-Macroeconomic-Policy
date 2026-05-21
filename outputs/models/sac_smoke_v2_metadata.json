@@ -1,0 +1,117 @@
+{
+  "trainer_config": {
+    "total_timesteps": 5,
+    "seed": 42,
+    "learning_rate": 0.0003,
+    "buffer_size": 1000000,
+    "batch_size": 256,
+    "gamma": 0.99,
+    "tau": 0.005,
+    "learning_starts": 1000,
+    "train_freq": 1,
+    "gradient_steps": 1,
+    "normalize_actions": true,
+    "tensorboard_log": "outputs/logs/sac",
+    "model_path": "outputs/models/sac_smoke_v2",
+    "best_model_dir": "outputs/models/sac_best_smoke",
+    "checkpoint_dir": "outputs/models/checkpoints_smoke",
+    "eval_log_dir": "outputs/logs/eval_smoke",
+    "metrics_path": "outputs/logs/sac/episode_metrics_smoke.jsonl",
+    "run_name": "smoke_v2",
+    "eval_freq": 2,
+    "n_eval_episodes": 1,
+    "checkpoint_freq": 2,
+    "save_replay_buffer": false,
+    "progress_bar": false,
+    "policy_kwargs": {
+      "net_arch": {
+        "pi": [
+          256,
+          256,
+          128
+        ],
+        "qf": [
+          256,
+          256,
+          128
+        ]
+      },
+      "activation_fn": "ReLU",
+      "use_sde": false
+    }
+  },
+  "economy_config": {
+    "alpha_1": 0.15,
+    "alpha_2": 0.15,
+    "beta": 0.2,
+    "g_star": 2.5,
+    "rho": 0.5,
+    "gamma": 0.1,
+    "tau": 20.0,
+    "sigma_d": 0.12,
+    "sigma_s": 0.1,
+    "pi_star": 2.0,
+    "u_star": 5.0,
+    "d_star": 60.0,
+    "pi_0": 2.0,
+    "u_0": 5.0,
+    "g_0": 2.5,
+    "r_0": 3.0,
+    "d_0": 60.0,
+    "E_pi_0": 2.0,
+    "G_0": 20.0,
+    "pi_bounds": [
+      -5.0,
+      15.0
+    ],
+    "u_bounds": [
+      0.0,
+      20.0
+    ],
+    "g_bounds": [
+      -10.0,
+      15.0
+    ],
+    "r_bounds": [
+      0.0,
+      10.0
+    ],
+    "d_bounds": [
+      0.0,
+      200.0
+    ],
+    "E_pi_bounds": [
+      -5.0,
+      15.0
+    ],
+    "G_bounds": [
+      0.0,
+      100.0
+    ],
+    "tau_bounds": [
+      0.0,
+      50.0
+    ],
+    "delta_r_bounds": [
+      -0.8,
+      0.8
+    ],
+    "delta_G_bounds": [
+      -2.0,
+      2.0
+    ],
+    "delta_tau_bounds": [
+      -2.0,
+      2.0
+    ],
+    "dt": 0.25,
+    "max_steps": 200,
+    "debt_limit": 150.0
+  },
+  "reward_config": {
+    "w1": 1.0,
+    "w2": 1.0,
+    "w3": 1.0,
+    "w4": 0.05
+  }
+}

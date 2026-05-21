@@ -20,7 +20,7 @@ Today, many countries follow simple **rules of thumb**. For example, the famous 
 
 Before we can train the AI, though, we need a **practice world** — a simulated economy where it can experiment safely. That's what Milestone 1 is.
 
-Milestone 1 is now largely in place. The next step is Milestone 2: wrapping this simulator as a proper `Gymnasium` environment for RL.
+Milestone 1 is now in place, Milestone 2 is implemented, and Milestone 3 has begun with a working SAC training scaffold.
 
 ---
 
@@ -29,10 +29,13 @@ Milestone 1 is now largely in place. The next step is Milestone 2: wrapping this
 | Folder / File | What it does |
 |---------------|-------------|
 | `src/models/economy.py` | The **economic engine**. Contains the equations that move the economy forward one quarter at a time. |
+| `src/env/macro_env.py` | The **Gymnasium environment**. Wraps the simulator as `MacroEnv-v0` for RL training. |
 | `src/utils/config.py` | The **settings menu**. All the numbers that control the economy (how sensitive inflation is to growth, how fast unemployment responds, etc.). |
 | `run_economy.py` | The **driver script**. Loads an action maker, runs the simulation for a chosen number of quarters, and saves charts plus JSON history. |
+| `train_sac.py` | The **training entry point** for the current SAC agent scaffold. |
 | `sretegies/linear_stretegy.py` | The current **hand-written baseline policy**. It implements a simple linear Taylor-like rule that `run_economy.py` can load. |
 | `sretegies/none_stretegy.py` | A **no-intervention baseline**. It always returns zero policy changes, so the economy evolves without active government or central-bank intervention. |
+| `src/rl/sac_trainer.py` | The current **SAC training pipeline**. Builds envs, callbacks, evaluation, checkpoints, and model saving. |
 | `src/utils/plotting.py` | The shared **plotting module** for simulation histories. |
 | `tests/` | The current **assertion layer**. It checks the core economy equations and the pluggable simulation runner. |
 | `viz/manim_scenes.py` | An **animation template** (optional). Can turn a simulation run into a video using Manim. |
@@ -56,6 +59,9 @@ python run_economy.py
 
 # 4. Optional: run the no-intervention baseline
 python run_economy.py --action-maker sretegies.none_stretegy:build_action_maker
+
+# 5. Optional: run a tiny SAC training smoke test
+python train_sac.py --total-timesteps 5
 ```
 
 After a few seconds, check the `outputs/figures/` folder. You should see:
@@ -224,29 +230,32 @@ Milestone 1 was about building the **world**. The next milestones will bring in 
 
 ---
 
-## ✅ Milestone 2 Readiness
+## ✅ Current Status
 
-Short answer: **yes, we are ready to start Milestone 2, but Milestone 2 is not built yet.**
+Milestone 2 is complete enough to use, and Milestone 3 is now scaffolded.
 
-What is already ready:
+What is already in place:
 
 - the economy core exists and is test-covered
-- the action interface already supports the full 3-part policy move `Δr`, `ΔG`, `Δτ`
+- the Gymnasium env exists as `MacroEnv-v0`
+- there is also a normalized-action variant for SAC-style training
+- the action interface supports the full 3-part policy move `Δr`, `ΔG`, `Δτ`
 - the rollout runner is modular, so RL can later replace a hand-written strategy cleanly
 - `gymnasium`, `torch`, and `stable-baselines3` are already in the environment
+- the SAC scaffold can train, evaluate periodically, checkpoint, and save episode-level macro metrics
 
-What still needs to be done for Milestone 2:
+What still remains for deeper Milestone 3 work:
 
-- build `src/env/macro_env.py`
-- decide the final RL observation vector
-- centralize generic action bounds for RL instead of keeping some of them inside the Taylor policy config
-- add environment tests and run Gymnasium's env checker
+- longer real training runs
+- evaluation scripts comparing SAC against the baseline strategies
+- model-loading strategy modules so trained SAC policies can be dropped into `run_economy.py`
+- optional hyperparameter tuning and observation/action normalization refinements
 
-One important modeling note:
+One important modeling note that is already handled:
 
-The current policy-maker interface does not expose government spending `G_t`, even though the simulator uses lagged government spending in the transition equations. For RL, we should probably expose `G_t` in the environment observation so the agent gets a proper Markov state.
+The RL observation now includes government spending `G_t`, so the environment is closer to a proper Markov state for training.
 
-That means the project is in a good place to begin Milestone 2, and the next clean move is to build the environment wrapper around the simulator we already have.
+That means the next clean move is not “build the env” anymore. It is “train a serious SAC baseline and then evaluate it.”
 
 ---
 

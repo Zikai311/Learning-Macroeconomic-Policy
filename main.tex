@@ -1,5 +1,5 @@
 \documentclass[11pt]{article}
-\usepackage{amsmath, amssymb, graphicx, booktabs}
+\usepackage{amsmath, amssymb, graphicx, booktabs, array}
 \usepackage{geometry}
 \usepackage{tikz}
 \usetikzlibrary{positioning, arrows.meta}
@@ -29,9 +29,9 @@ This is the basic reinforcement learning picture. At each time step, the agent o
 
 \subsection{State Space}
 \begin{align}
-    s_t = [\pi_t, u_t, g_t, r_t, d_t, \mathbb{E}_t\pi_{t+1}, \tau_t]
+    s_t = [\pi_t, u_t, g_t, r_t, d_t, \mathbb{E}_t\pi_{t+1}, \tau_t, G_t]
 \end{align}
-The state is the information the agent gets to see before it acts. In ML language, you can think of this as the feature vector fed into the network. A useful state should summarize everything important about the current situation so that the agent can make a sensible decision. In this project, the state contains inflation, unemployment, growth, the interest rate, debt, expected inflation, and the tax rate. Together these variables give the agent a snapshot of both current macro conditions and the policy stance already in place.
+The state is the information the agent gets to see before it acts. In ML language, you can think of this as the feature vector fed into the network. A useful state should summarize everything important about the current situation so that the agent can make a sensible decision. In this project, the state contains inflation, unemployment, growth, the interest rate, debt, expected inflation, the tax rate, and the level of government spending. Together these variables give the agent a snapshot of both current macro conditions and the policy stance already in place.
 
 \subsection{Action Space}
 \begin{align}
@@ -120,56 +120,44 @@ The critic is a separate network that evaluates actions rather than choosing the
 \subsection{SAC Architecture Diagram}
 \begin{figure}[ht]
 \centering
-\begin{tikzpicture}[
-    >=Stealth,
-    semithick,
-    font=\footnotesize,
-    box/.style={draw, align=center, minimum width=2.9cm, minimum height=1.15cm},
-    note/.style={font=\scriptsize, fill=white, inner sep=1pt}
-]
-    \node[box] (env) at (0, 4.8) {Macro Economy\\Environment};
-    \node[box] (policy) at (6.6, 4.8) {Policy\\Network};
-    \node[box] (entropy) at (13.0, 4.8) {Entropy\\Bonus};
-
-    \node[box] (buffer) at (0.0, 1.7) {Replay\\Buffer};
-    \node[box] (critic) at (4.6, 1.7) {Critic\\Q-Network};
-    \node[box] (target) at (9.1, 1.7) {Target\\Value};
-
-    \node[box] (closs) at (4.6, -1.2) {Critic\\Loss};
-    \node[box] (aloss) at (11.5, -1.2) {Actor\\Loss};
-
-    \draw[->] ([yshift=8pt]env.east) -- node[above, note] {state $s_t$} ([yshift=8pt]policy.west);
-    \draw[->] ([yshift=-8pt]policy.west) -- node[below, note] {action $a_t=(\Delta r,\Delta G,\Delta \tau)$} ([yshift=-8pt]env.east);
-    \draw[->] (policy.east) -- node[above, note] {$\pi_\phi$} (entropy.west);
-
-    \draw[->] (env.south) -- node[left, note] {store transition} (buffer.north);
-    \draw[->] (buffer.east) -- node[above, note] {sample batch} (critic.west);
-    \draw[->] ([yshift=8pt]buffer.east) -- ++(1.0,0) |- ([yshift=8pt]target.west);
-    \node[note] at (7.1, 2.35) {$r_t,\ s_{t+1}$};
-
-    \draw[->, dashed] ([yshift=14pt]critic.east) -- node[above, note] {soft update} ([yshift=14pt]target.west);
-    \draw[->] ([xshift=10pt]policy.south) -- ++(0,-0.9) -| ([xshift=-12pt]target.north);
-    \draw[->] ([xshift=-10pt]entropy.south) -- ++(0,-1.1) -| ([xshift=12pt]target.north);
-    \node[note] at (11.7, 3.2) {entropy correction};
-
-    \draw[->] (critic.south) -- node[left, note] {$Q_\theta(s_t,a_t)$} (closs.north);
-    \draw[->] (target.south) -- ++(0,-0.6) -| (closs.east);
-    \node[note] at (7.25, -0.05) {critic target $y_t$};
-    \draw[->] (closs.north) -- ++(0,0.55) -| ([xshift=10pt]critic.south);
-    \node[note] at (5.55, -0.15) {update critic};
-
-    \draw[->] ([xshift=-10pt]policy.south) -- ++(0,-1.0) -| ([xshift=-14pt]aloss.north);
-    \draw[->] (critic.east) -- ++(1.0,0) |- (aloss.west);
-    \node[note] at (8.5, -0.95) {$Q_\theta(s_t,a'_t)$};
-    \draw[->] ([xshift=10pt]entropy.south) -- ++(0,-2.6) ([xshift=12pt]aloss.north);
-    \node[note] at (13.25, 0.35) {entropy term};
-    \draw[->] (aloss.north) -- ++(0,0.65) -| ([xshift=14pt]policy.south);
-    \node[note] at (11.2, -0.1) {update actor};
-\end{tikzpicture}
-\caption{Simplified SAC data flow for the macroeconomic policy project. For clarity, one critic is shown; practical SAC often uses two Q-networks.}
+\small
+\begin{tabular}{
+    >{\raggedright\arraybackslash}p{0.22\linewidth}
+    >{\raggedright\arraybackslash}p{0.33\linewidth}
+    >{\raggedright\arraybackslash}p{0.35\linewidth}
+}
+\toprule
+\textbf{SAC relation} & \textbf{Information used} & \textbf{Role in this project} \\
+\midrule
+Environment interaction
+&
+The policy observes $s_t=[\pi_t,u_t,g_t,r_t,d_t,\mathbb{E}_t\pi_{t+1},\tau_t,G_t]$ and samples $a_t=(\Delta r_t,\Delta G_t,\Delta \tau_t)$.
+&
+The macro environment applies the policy move and returns $(r_t,s_{t+1})$. This creates the raw experience used for learning. \\
+\midrule
+Replay buffer
+&
+Transitions $(s_t,a_t,r_t,s_{t+1})$ collected from previous economy rollouts.
+&
+SAC samples mini-batches from this memory so the critic and actor learn from many past macroeconomic situations, not only the latest quarter. \\
+\midrule
+Critic update
+&
+The critic estimates $Q_\theta(s_t,a_t)$ and compares it with an entropy-adjusted target value built from $r_t$ and $s_{t+1}$.
+&
+This trains the Q-function to judge whether a policy action improves long-run macroeconomic welfare. Practical SAC usually uses two critics to reduce overestimation. \\
+\midrule
+Actor update
+&
+The actor samples a candidate action $a'_t\sim\pi_\phi(\cdot|s_t)$ and receives the critic score $Q_\theta(s_t,a'_t)$ plus the entropy term.
+&
+This shifts the policy toward actions with higher estimated long-run value while preserving exploration through the entropy bonus. \\
+\bottomrule
+\end{tabular}
+\caption{SAC architecture represented as a relation map. This table replaces a dense arrow diagram so that the same dependencies are visible without overlapping labels or crossed feedback arrows.}
 \end{figure}
 
-This figure should now be read as the SAC training flow for your macroeconomic policy environment. The policy sees the macro state $s_t=[\pi_t,u_t,g_t,r_t,d_t,\mathbb{E}_t\pi_{t+1},\tau_t]$ and outputs the three policy moves $(\Delta r_t,\Delta G_t,\Delta \tau_t)$. The environment returns a reward and next state, and the transition is stored in the replay buffer. The critic loop learns $Q_\theta(s_t,a_t)$ by comparing it with a target value built from $r_t$, $s_{t+1}$, the target network, and the entropy-adjusted next action. The actor loop samples actions from the current policy, asks the critic how good they are, and then updates the policy toward higher-value actions while still preserving exploration through the entropy term. For readability the figure shows one critic, but the learning logic is consistent with the SAC setup you would use for this project.
+This figure should now be read as the SAC training flow for your macroeconomic policy environment. The policy sees the macro state $s_t=[\pi_t,u_t,g_t,r_t,d_t,\mathbb{E}_t\pi_{t+1},\tau_t,G_t]$ and outputs the three policy moves $(\Delta r_t,\Delta G_t,\Delta \tau_t)$. The environment returns a reward and next state, and the transition is stored in the replay buffer. The critic loop learns $Q_\theta(s_t,a_t)$ by comparing it with a target value built from $r_t$, $s_{t+1}$, the target network, and the entropy-adjusted next action. The actor loop samples actions from the current policy, asks the critic how good they are, and then updates the policy toward higher-value actions while still preserving exploration through the entropy term. For readability the figure shows one critic, but the learning logic is consistent with the SAC setup used in this project.
 
 \section{Training Algorithm}
 \noindent\textbf{Soft Actor-Critic for Policy Learning}
@@ -238,6 +226,453 @@ We analyze:
 
 \section{Discussion}
 This framework highlights the role of learning-based control in macroeconomics. Challenges include model misspecification, reward alignment, and generalization under structural change.
+
+\section{From Macroeconomic Control to a General Failure Question}
+The macroeconomic simulator provides one concrete instance of a broader class of controlled Markov systems. In the more general setting considered here, the state is a vector $s_t \in \mathbb{R}^n$, the action is produced by a policy $\pi$, and the system evolves according to
+\begin{align}
+    s_{t+1} = f(s_t, \pi(s_t)).
+\end{align}
+The target of control is a prescribed state $s^*$, and performance is measured by a distance-based loss such as
+\begin{align}
+    L(s_t,s^*) = \|s_t - s^*\|_2^2.
+\end{align}
+The central research question is not only whether RL can reduce this loss in practice, but under what structural conditions \emph{any} policy can make the trajectory converge to the target. This reformulation matters because policy failure can arise from the system itself, rather than from poor training alone.
+
+\subsection{Why Equilibrium Feasibility Must Be Checked First}
+Before studying learning, one must determine whether the target can even be maintained once reached. If no action can hold the system at $s^*$, then the learning problem is ill-posed: the loss cannot converge to zero because the target is not a feasible steady state of the dynamics.
+
+Let $u^*$ denote the action applied at the target. A necessary condition for feasibility is
+\begin{align}
+    s^* = f(s^*,u^*), \qquad u^* \in \mathcal{U},
+\end{align}
+where $\mathcal{U}$ is the admissible action set. This formula is needed because it separates two distinct difficulties. The first is optimization: whether an algorithm can discover a good policy. The second is feasibility: whether the target is compatible with the physical, economic, or institutional constraints of the system. If no admissible $u^*$ satisfies this fixed-point equation, then failure is structural. In that case, even an ideal optimizer cannot make $L(s_t,s^*) \to 0$.
+
+\subsection{Why a Lyapunov View Is Needed}
+Reward trajectories alone do not establish stability. Reinforcement learning can produce temporarily good reward while the state remains fragile, oscillatory, or only conditionally stable. A Lyapunov function is introduced because it provides a direct mathematical test of whether deviations from the target shrink over time.
+
+Once a policy is fixed, the controlled system becomes the closed-loop map
+\begin{align}
+    s_{t+1} = g(s_t) := f(s_t,\pi(s_t)).
+\end{align}
+The natural candidate Lyapunov function for this project is the same distance-based quantity used in the loss:
+\begin{align}
+    V(s_t) = L(s_t,s^*) = \|s_t - s^*\|_2^2.
+\end{align}
+This choice is important because it links the machine learning objective and the stability objective. The function $V$ is positive definite around $s^*$: it is zero at the target and positive elsewhere. The next step is to study its one-step difference,
+\begin{align}
+    \Delta V(s_t) = V(s_{t+1}) - V(s_t)
+    = \|g(s_t)-s^*\|_2^2 - \|s_t-s^*\|_2^2.
+\end{align}
+This formula is needed because the sign of $\Delta V$ expresses the local direction of the error energy. If $\Delta V(s_t) < 0$ for all $s_t$ in a neighborhood of $s^*$ except at the target itself, then the closed-loop system is locally asymptotically stable in that neighborhood. If $\Delta V$ becomes positive in some directions, then the distance to the target grows rather than shrinks, and the policy cannot stabilize the system there.
+
+\subsection{Why Local Linearization Is Introduced}
+For a high-dimensional nonlinear system, the exact expression for $\Delta V$ is often too complicated to analyze directly. Local linearization is introduced because it replaces the nonlinear dynamics by a first-order approximation near the target, making the source of failure mathematically visible.
+
+Define the local deviations
+\begin{align}
+    \Delta s_t = s_t - s^*, \qquad \Delta u_t = u_t - u^*.
+\end{align}
+Assuming that $f$ is differentiable near $(s^*,u^*)$, a first-order Taylor expansion gives
+\begin{align}
+    \Delta s_{t+1}
+    \approx
+    A \Delta s_t + B \Delta u_t,
+\end{align}
+with
+\begin{align}
+    A = \left.\frac{\partial f}{\partial s}\right|_{(s^*,u^*)},
+    \qquad
+    B = \left.\frac{\partial f}{\partial u}\right|_{(s^*,u^*)}.
+\end{align}
+This pair of matrices has a clear interpretation. The matrix $A$ describes how the system's own internal couplings propagate local deviations even when the action is held fixed. The matrix $B$ describes how strongly the control channel can influence those deviations. In intuitive terms, $A$ measures endogenous instability or persistence, while $B$ measures control authority.
+
+\subsection{Why the Closed-Loop Matrix $G=A+BK$ Appears}
+The linearized model above still contains the action increment $\Delta u_t$. To study stabilization, the policy must also be approximated locally. If the policy is differentiable near the target, then
+\begin{align}
+    \Delta u_t \approx K \Delta s_t,
+    \qquad
+    K = \left.\frac{\partial \pi}{\partial s}\right|_{s^*}.
+\end{align}
+This formula is needed because it converts the abstract policy into a local feedback gain matrix. Substituting it into the linearized dynamics yields
+\begin{align}
+    \Delta s_{t+1} \approx (A+BK)\Delta s_t.
+\end{align}
+The matrix
+\begin{align}
+    G = A + BK
+\end{align}
+is the local closed-loop transition matrix. It is important because it gathers the system dynamics and the policy into one object. Stability is then determined by whether this matrix contracts deviations or amplifies them.
+
+Using the simple quadratic candidate $V(\Delta s_t)=\|\Delta s_t\|_2^2$, the Lyapunov difference becomes
+\begin{align}
+    \Delta V(\Delta s_t)
+    \approx
+    \Delta s_t^\top (G^\top G - I)\Delta s_t.
+\end{align}
+This identity is needed because it makes the local stabilization requirement algebraic. A sufficient condition for decrease of this specific quadratic Lyapunov function is
+\begin{align}
+    G^\top G - I \prec 0.
+\end{align}
+More generally, local asymptotic stability of the linearized closed loop is characterized by
+\begin{align}
+    \rho(G) < 1,
+\end{align}
+where $\rho(G)$ is the spectral radius of $G$. Equivalently, there exists some positive definite matrix $P$ such that
+\begin{align}
+    G^\top P G - P \prec 0.
+\end{align}
+This more general form matters because the Euclidean distance is not always the correct geometry for a coupled system. In applications such as macroeconomics, the state variables may have different scales and economic meanings, so a weighted quadratic form can be more informative than the raw Euclidean norm.
+
+\subsection{Why Controllability Must Be Introduced}
+Even if the closed-loop matrix $G$ determines local stability, this still does not answer whether a suitable feedback gain can exist. Controllability is introduced because it formalizes whether the control inputs can influence all relevant state directions of the linearized system.
+
+Starting from
+\begin{align}
+    \Delta s_{t+1} = A\Delta s_t + B\Delta u_t,
+\end{align}
+one may expand the dynamics across several steps:
+\begin{align}
+    \Delta s_1 &= A\Delta s_0 + B\Delta u_0, \\
+    \Delta s_2 &= A^2\Delta s_0 + AB\Delta u_0 + B\Delta u_1, \\
+    \Delta s_3 &= A^3\Delta s_0 + A^2B\Delta u_0 + AB\Delta u_1 + B\Delta u_2.
+\end{align}
+Continuing to step $n$ yields
+\begin{align}
+    \Delta s_n
+    =
+    A^n\Delta s_0
+    + A^{n-1}B\Delta u_0
+    + A^{n-2}B\Delta u_1
+    + \cdots
+    + B\Delta u_{n-1}.
+\end{align}
+This expansion is needed because it exposes how present and past actions propagate through the coupled state dynamics. Rearranging gives
+\begin{align}
+    \Delta s_n - A^n\Delta s_0
+    =
+    \begin{bmatrix}
+        B & AB & A^2B & \cdots & A^{n-1}B
+    \end{bmatrix}
+    \begin{bmatrix}
+        \Delta u_{n-1} \\
+        \Delta u_{n-2} \\
+        \vdots \\
+        \Delta u_0
+    \end{bmatrix}.
+\end{align}
+The matrix
+\begin{align}
+    \mathcal{C}
+    =
+    \begin{bmatrix}
+        B & AB & A^2B & \cdots & A^{n-1}B
+    \end{bmatrix}
+\end{align}
+is the Kalman controllability matrix. It is important because its column space describes all local state directions that can be reached by combining admissible inputs across multiple time steps.
+
+If
+\begin{align}
+    \mathrm{rank}(\mathcal{C}) < n,
+\end{align}
+then some state directions are unreachable under the linearized dynamics. In that case, no local feedback policy can fully counteract disturbances in those directions. Even when $\mathrm{rank}(\mathcal{C}) = n$, failure can still occur if the entries of $B$ are extremely small or if the action constraints in $\mathcal{U}$ are tight. Then the system may be controllable in principle but too weakly actuated in practice to overcome shocks, nonlinear drift, or saturation. This directly matches the intuition that a volatile system can fail because policy influence is too small relative to endogenous motion.
+
+\subsection{A Worked Linear Macroeconomic Example}
+The previous subsections introduced the general tools. A concrete example is needed because it shows how an apparently reasonable economic model can contain a structural failure mode before any RL algorithm is trained. The simplified macroeconomic system in this paper is already close to linear, so it can be rewritten as an explicit state-space model and analyzed directly.
+
+For this analysis, stochastic shocks are removed and all variables are expressed as deviations from a steady state. This step is not a change in the economic model; it is a coordinate change that makes stability and controllability visible. Let the steady state be
+\begin{align}
+    (g^*,\pi^*,u^*,d^*,r^*,G^*,\tau^*,e^*),
+\end{align}
+where $e_t=\mathbb{E}_t\pi_{t+1}$. A feasible steady state must satisfy
+\begin{align}
+    g^* &= \alpha_1G^*-\alpha_2r^*, \\
+    \pi^* &= e^*, \\
+    G^* &= \tau^*.
+\end{align}
+The first condition says that trend growth must be consistent with the steady policy stance. The second says that inflation expectations are correct at the steady state. The third says that debt is constant only when government spending equals tax revenue in this simplified debt equation.
+
+Define deviation variables by placing a tilde over each variable:
+\begin{align}
+    \tilde g_t &= g_t-g^*, &
+    \tilde \pi_t &= \pi_t-\pi^*, &
+    \tilde u_t &= u_t-u^*, \\
+    \tilde d_t &= d_t-d^*, &
+    \tilde r_t &= r_t-r^*, &
+    \tilde G_t &= G_t-G^*, \\
+    \tilde \tau_t &= \tau_t-\tau^*, &
+    \tilde e_t &= e_t-e^*.
+\end{align}
+In these coordinates, the deterministic economic equations become
+\begin{align}
+    \tilde g_t &= \alpha_1\tilde G_{t-1}-\alpha_2\tilde r_{t-1}, \\
+    \tilde \pi_t &= \tilde e_t+\beta\tilde g_t, \\
+    \tilde e_t &= \rho\tilde \pi_t+(1-\rho)\tilde e_{t-1}, \\
+    \tilde u_t &= \tilde u_{t-1}-\gamma\tilde g_t, \\
+    \tilde d_t &= \tilde d_{t-1}+\tilde G_t-\tilde \tau_t.
+\end{align}
+
+The expectation and inflation equations are simultaneous, so it is useful to eliminate $\tilde \pi_t$ before writing the system matrix. Substituting $\tilde e_t=\rho\tilde \pi_t+(1-\rho)\tilde e_{t-1}$ into $\tilde \pi_t=\tilde e_t+\beta\tilde g_t$ gives
+\begin{align}
+    \tilde \pi_t
+    =
+    \rho\tilde \pi_t+(1-\rho)\tilde e_{t-1}+\beta\tilde g_t.
+\end{align}
+Therefore,
+\begin{align}
+    \tilde \pi_t
+    =
+    \tilde e_{t-1}
+    +
+    \frac{\beta}{1-\rho}\tilde g_t.
+\end{align}
+Let
+\begin{align}
+    \kappa = \frac{\beta}{1-\rho},
+    \qquad
+    \eta = \frac{\rho\beta}{1-\rho}.
+\end{align}
+Then the expectation equation becomes
+\begin{align}
+    \tilde e_t
+    =
+    \tilde e_{t-1}+\eta\tilde g_t.
+\end{align}
+This algebraic reduction matters because it shows that inflation itself is not the only memory channel. Expected inflation is the persistent state variable, and it is moved by the same output-gap channel that also moves unemployment.
+
+Now define the state vector and policy action by
+\begin{align}
+    x_t
+    =
+    \begin{bmatrix}
+        \tilde u_{t-1} \\
+        \tilde e_{t-1} \\
+        \tilde d_{t-1} \\
+        \tilde r_{t-1} \\
+        \tilde G_{t-1} \\
+        \tilde \tau_{t-1}
+    \end{bmatrix},
+    \qquad
+    a_t
+    =
+    \begin{bmatrix}
+        \Delta r_t \\
+        \Delta G_t \\
+        \Delta \tau_t
+    \end{bmatrix}.
+\end{align}
+The output gap and inflation deviation are then read from the state as
+\begin{align}
+    \tilde g_t
+    &=
+    \begin{bmatrix}
+        0&0&0&-\alpha_2&\alpha_1&0
+    \end{bmatrix}x_t, \\
+    \tilde \pi_t
+    &=
+    \begin{bmatrix}
+        0&1&0&-\kappa\alpha_2&\kappa\alpha_1&0
+    \end{bmatrix}x_t.
+\end{align}
+The full linear state-space system is
+\begin{align}
+    x_{t+1} = Ax_t+Ba_t,
+\end{align}
+where
+\begin{align}
+    A
+    =
+    \begin{bmatrix}
+        1&0&0&\gamma\alpha_2&-\gamma\alpha_1&0\\
+        0&1&0&-\eta\alpha_2&\eta\alpha_1&0\\
+        0&0&1&0&1&-1\\
+        0&0&0&1&0&0\\
+        0&0&0&0&1&0\\
+        0&0&0&0&0&1
+    \end{bmatrix},
+    \qquad
+    B
+    =
+    \begin{bmatrix}
+        0&0&0\\
+        0&0&0\\
+        0&1&-1\\
+        1&0&0\\
+        0&1&0\\
+        0&0&1
+    \end{bmatrix}.
+\end{align}
+This explicit form reveals the economic structure of the model. Interest-rate changes first move the policy-rate state. Spending and tax changes first move the fiscal states. These policy states then affect output, and output affects unemployment and expectations.
+
+\subsection{Kalman Interpretation of the Linear Example}
+The Kalman view asks whether policy actions can move every independent state direction. For the six-dimensional system above, the controllability matrix is
+\begin{align}
+    \mathcal{C}
+    =
+    \begin{bmatrix}
+        B&AB&A^2B&A^3B&A^4B&A^5B
+    \end{bmatrix}.
+\end{align}
+For generic nonzero parameters in the simplified model, this matrix has rank five rather than six:
+\begin{align}
+    \mathrm{rank}(\mathcal{C}) = 5 < 6.
+\end{align}
+The rank loss can be understood without computing every column of $\mathcal{C}$. The unemployment and expectation equations imply
+\begin{align}
+    \tilde u_t &= \tilde u_{t-1}-\gamma\tilde g_t,\\
+    \tilde e_t &= \tilde e_{t-1}+\eta\tilde g_t.
+\end{align}
+Multiplying the first equation by $\eta$ and the second by $\gamma$, then adding them, gives
+\begin{align}
+    \eta\tilde u_t+\gamma\tilde e_t
+    =
+    \eta\tilde u_{t-1}+\gamma\tilde e_{t-1}.
+\end{align}
+Thus
+\begin{align}
+    q_t = \eta\tilde u_t+\gamma\tilde e_t
+\end{align}
+is an invariant of the controlled dynamics. No sequence of actions can change this quantity. In vector form, with
+\begin{align}
+    w =
+    \begin{bmatrix}
+        \eta\\
+        \gamma\\
+        0\\
+        0\\
+        0\\
+        0
+    \end{bmatrix},
+\end{align}
+the invariant can be written as $w^\top x_t=q_t$, and the matrices satisfy
+\begin{align}
+    w^\top A = w^\top,
+    \qquad
+    w^\top B = 0.
+\end{align}
+This is exactly the structural obstruction detected by Kalman controllability. Since one linear combination of the state is unchanged by every admissible action sequence, the reachable set from a given initial condition lies on the hyperplane
+\begin{align}
+    w^\top x = w^\top x_0.
+\end{align}
+Consequently, the origin can be reached only if $w^\top x_0=0$. If the initial economy has
+\begin{align}
+    \eta\tilde u_0+\gamma\tilde e_0 \neq 0,
+\end{align}
+then no policy, learned or hand-designed, can drive all six deviations exactly to zero in this simplified model.
+
+Economically, the failure arises because unemployment and expected inflation are both moved through the same output-gap channel. Policy can influence output through interest rates and spending, but in this simplified structure it cannot independently choose the path of unemployment and the path of expectations. One common lever moves both. This is enough to create an uncontrollable direction even though the model has three policy instruments.
+
+\subsection{Lyapunov Interpretation of the Linear Example}
+The Lyapunov view reaches the same conclusion from the stability side. Suppose a local linear policy is applied:
+\begin{align}
+    a_t = Kx_t.
+\end{align}
+The closed-loop system is then
+\begin{align}
+    x_{t+1} = (A+BK)x_t = Gx_t.
+\end{align}
+For asymptotic stability of the origin in the full six-dimensional state space, the closed-loop matrix must satisfy
+\begin{align}
+    \rho(G)<1.
+\end{align}
+Equivalently, there must exist a positive definite matrix $P$ such that
+\begin{align}
+    G^\top P G - P \prec 0.
+\end{align}
+However, the invariant found above remains true under every feedback gain $K$. Since $w^\top B=0$,
+\begin{align}
+    w^\top G
+    =
+    w^\top(A+BK)
+    =
+    w^\top A+w^\top BK
+    =
+    w^\top.
+\end{align}
+Therefore, $1$ is always a left eigenvalue of the closed-loop matrix $G$. Hence
+\begin{align}
+    \rho(G)\ge 1
+\end{align}
+for every possible linear feedback gain. This means that no policy can make the whole six-dimensional deviation vector asymptotically stable at the origin. A Lyapunov function may still decrease on the five-dimensional controllable subspace, but it cannot be strictly decreasing in all nonzero directions of the full state space.
+
+This example connects the two perspectives in a precise chain:
+\begin{align}
+    \begin{aligned}
+    &\text{structural invariant}
+    \Longrightarrow
+    \mathrm{rank}(\mathcal{C})<6
+    \Longrightarrow
+    \text{an immovable closed-loop mode} \\
+    &\Longrightarrow
+    \rho(G)\ge 1
+    \Longrightarrow
+    \text{no full-state Lyapunov proof of asymptotic stability}.
+    \end{aligned}
+\end{align}
+For the research question of this paper, this is a useful counterexample. It shows that even a linear, low-dimensional, economically interpretable model need not be stabilizable to an arbitrary target from an arbitrary initial condition. If an RL policy fails in such a case, the failure is not necessarily caused by insufficient training or network capacity. It may be caused by the geometry of the controlled Markov process itself.
+
+\subsection{Why Constraint Sets and Viability Are Needed}
+In constrained systems, eventual convergence is not the only question. A policy may move the state toward the target in the long run while violating hard limits on the way. Viability theory is introduced because it distinguishes between asymptotic desirability and trajectory-wise admissibility.
+
+Let $\mathcal{X} \subseteq \mathbb{R}^n$ denote the safe set, that is, the set of states consistent with physical, institutional, or social constraints. The viability kernel is
+\begin{align}
+    \mathrm{Viab}_f(\mathcal{X})
+    =
+    \left\{
+        s_0 \in \mathcal{X}
+        \;\middle|\;
+        \exists \pi \text{ such that } s_t \in \mathcal{X} \text{ for all } t \ge 0
+    \right\}.
+\end{align}
+This concept is needed because it identifies which initial states are fundamentally recoverable under the given control limits. If $s_0 \notin \mathrm{Viab}_f(\mathcal{X})$, then failure is unavoidable: the trajectory must leave the safe region under every admissible policy before stabilization can occur. In the present project, this corresponds to cases where the initial macroeconomic state is so extreme that no bounded sequence of policy actions can restore the system without violating debt, inflation, or unemployment limits first.
+
+\subsection{Chain of Failure}
+The preceding concepts form a single logical chain. Failure of RL-based stabilization does not begin with optimization alone. It can begin much earlier, at the level of feasibility, control authority, or admissible trajectories.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+    >=Stealth,
+    semithick,
+    font=\small,
+    failbox/.style={
+        draw,
+        rounded corners=4pt,
+        align=center,
+        text width=12.5cm,
+        minimum height=1.1cm,
+        inner sep=7pt
+    }
+]
+    \node[failbox] (b1) at (0, 0) {Structural obstruction at the local model level: the target is infeasible, the action constraints are binding, the input gain is too weak, or the controllability matrix satisfies $\mathrm{rank}(\mathcal{C})<n$.};
+    \node[failbox] (b2) at (0, -2.0) {As a result, no robust local feedback gain can be realized, or the policy must operate too close to saturation to stabilize all relevant state directions.};
+    \node[failbox] (b3) at (0, -4.0) {The closed-loop matrix $G=A+BK$ retains unstable directions, so either $\rho(G)\ge 1$ or the chosen quadratic Lyapunov function fails to decrease.};
+    \node[failbox] (b4) at (0, -6.0) {The one-step Lyapunov difference is not negative in the relevant neighborhood: $\Delta V(s_t)\not<0$ for some nonzero local deviations.};
+    \node[failbox] (b5) at (0, -8.0) {Observed outcome: the trajectory does not converge to $s^*$, and RL training cannot settle to a genuinely stabilizing policy.};
+
+    \draw[->] (b1) -- (b2);
+    \draw[->] (b2) -- (b3);
+    \draw[->] (b3) -- (b4);
+    \draw[->] (b4) -- (b5);
+\end{tikzpicture}
+\caption{Logical chain linking structural properties of the controlled system to failure of RL-based stabilization.}
+\end{figure}
+
+\subsection{Connection Back to the Present Project}
+The macroeconomic environment developed in this project offers a useful testbed because the state variables have real interpretations and the action channels are economically meaningful. In that setting, the reward already resembles a quadratic stabilization objective, so it naturally suggests a Lyapunov-style interpretation. At the same time, the analysis above clarifies an important limitation: successful RL performance in the simulator does not by itself prove that arbitrary coupled Markov systems are stabilizable.
+
+The broader research program is therefore to identify when stabilization fails for structural reasons. Four failure modes are particularly important. First, the target $s^*$ may be infeasible under the admissible action set. Second, the local control authority measured by $B$ may be too weak relative to the intrinsic dynamics measured by $A$. Third, the initial state $s_0$ may lie outside the viability kernel of the constrained system. Fourth, strong nonlinearities may shrink the domain in which the local approximation remains valid, so that a policy that is stabilizing near $s^*$ still fails from more distant initial conditions. These cases define the boundary between a merely trainable controller and a genuinely stabilizing one.
+
+\section{Selected Theoretical Literature}
+The present project sits at the intersection of reinforcement learning, nonlinear control, and constrained dynamical systems. Several references are especially relevant to the failure question posed above.
+
+\begin{itemize}
+    \item Tsitsiklis and Van Roy, ``Analysis of Temporal-Difference Learning with Function Approximation'' (1996), for early mathematical results showing that value-function learning with function approximation can be unstable.
+    \item Dai et al., ``SBEED: Convergent Reinforcement Learning with Nonlinear Function Approximation'' (ICML 2018), for a route toward convergence guarantees under nonlinear approximation.
+    \item Zhang et al., ``Provably Convergent Two-Timescale Off-Policy Actor-Critic with Function Approximation'' (ICML 2020), for actor-critic convergence theory closer to modern RL practice.
+    \item Boffi et al., ``Learning Stability Certificates from Data'' (CoRL 2021), for learning Lyapunov-style certificates directly from trajectories.
+    \item Wan, Naik, and Sutton, ``Learning and Planning in Average-Reward Markov Decision Processes'' (ICML 2021), for a formulation that is often more appropriate than discounted return in continuing control systems.
+    \item Moerland et al., ``Model-based Reinforcement Learning: A Survey'' (2022), for a broad overview of approaches that may be better suited to structured dynamical systems than purely model-free methods.
+\end{itemize}
 
 \section{Conclusion}
 We demonstrate a reinforcement learning approach to macroeconomic policy design. Future work includes multi-agent economies and real-world calibration.

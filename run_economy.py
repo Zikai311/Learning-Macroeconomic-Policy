@@ -60,7 +60,7 @@ def sample_shocks(step: int, shock_scenario: str, seed: int) -> tuple[float | No
 def simulate(
     action_maker: ActionMaker,
     *,
-    seed: int = 42,
+    seed: int = 47,
     steps: int | None = None,
     shock_scenario: str = "baseline",
     config: EconomyConfig | None = None,

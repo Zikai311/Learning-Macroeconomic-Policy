@@ -2,11 +2,14 @@ import os
 import sys
 import unittest
 
+import numpy as np
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from run_economy import load_action_maker, simulate
+from sretegies.sac_stretegy import _denormalize_action
 from src.utils.config import EconomyConfig
 
 
@@ -62,6 +65,20 @@ class RunEconomyTests(unittest.TestCase):
         self.assertEqual(len(history), 4)
         self.assertEqual(history[0]["step"], 0)
         self.assertEqual(history[-1]["step"], 3)
+
+    def test_denormalize_action_maps_minus_one_to_low_and_plus_one_to_high(self):
+        cfg = EconomyConfig()
+        actual = _denormalize_action(np.array([-1.0, 1.0, 0.0], dtype=np.float32), cfg)
+
+        np.testing.assert_allclose(
+            actual,
+            np.array([
+                cfg.delta_r_bounds[0],
+                cfg.delta_G_bounds[1],
+                0.0,
+            ], dtype=np.float32),
+            atol=1e-6,
+        )
 
 
 if __name__ == "__main__":
